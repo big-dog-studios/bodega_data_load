@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS stores (
   geom              geometry(Point, 4326),
   estab_type        text,
   join_key          text,                          -- normalized, cross-source join
+  alc_class         integer,                        -- SLA license class_code (set by sla loader)
   ingested_at       timestamptz DEFAULT now()
 );
 
