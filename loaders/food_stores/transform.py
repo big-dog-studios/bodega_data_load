@@ -86,7 +86,7 @@ def transform(df):
     # 1. Borough gate.
     df = df[df['county'].str.upper().isin(BOROS)]
     # 2. Structural retail gate.
-    df = df[df['establishment_type'].apply(is_retail)]
+    df = df[df['estab_type'].apply(is_retail)]
     # 3. Name exclusions (chains + specialty).
     nm = df['dba_name'].fillna(df['entity_name']).fillna('').str.upper()
     df = df[~nm.str.contains(CHAINS) & ~nm.str.contains(SPECIALTY)]
@@ -106,7 +106,7 @@ def transform(df):
         'city': df['city'],
         'county': df['county'],
         'zip': df['zip_code'],
-        'estab_type': df['establishment_type'],
+        'estab_type': df['estab_type'],
         'lon': ll.map(lambda t: t[0]).values,
         'lat': ll.map(lambda t: t[1]).values,
         'bodega_confidence': confidence.values,
