@@ -108,7 +108,16 @@ NY quirk: grocery/convenience stores can sell **beer/cider only**, not wine or l
 - `Grocery Store Beer` → beer (classic bodega).
 - `Grocery Beer/Wine Product` → beer + low-ABV "wine product" (NOT regular wine).
 - `Liquor Store` → dedicated wine/spirits shop = NOT a bodega (exclude).
-Store the license TYPE, not a boolean. Decoder: SLA `leap-license-type-and-class-definitions.xlsx`.
+
+Normalize to 3NF: license types live in a lookup table `sla_license_codes`
+(PK `(type_code, class_code)`, plus `class_description`, `product`, `not_bodega`),
+seeded from the LEAP decoder (`leap-license-type-and-class-definitions.xlsx`) via
+`common/seed_sla_license_codes.sql`. `Type` is `1` across the whole file, so `Class`
+is the real discriminator (71/81 = Grocery Store beer/wine-product, 91 = Wine Store,
+100 = Liquor Store, ...). The SLA license row carries `(type_code, class_code)` (FK)
+only; the bodega-relevant signal is the `not_bodega` flag on the lookup (`true` =
+dedicated packaged-alcohol retailer: Wine Store, Liquor Store, Satellite Wine Store).
+Don't copy the description or a boolean onto every license row — derive it via the join.
 
 ## Join key convention
 
