@@ -62,7 +62,6 @@ CREATE TABLE stores (
   house text, street text, city text, county text, zip text,
   geom              geometry(Point, 4326),
   estab_type        text,
-  bodega_confidence text,                          -- 'high' | 'medium'
   join_key          text,                          -- normalized, cross-source join
   ingested_at       timestamptz DEFAULT now()
 );
@@ -86,11 +85,9 @@ The filter is layered, in order of trust:
    This removes wholesale/distribution hybrids (`ACH`, `ACD`, `ACDK`, ...).
 3. **Name exclusion (high precision):** drop chains/big-box and non-bodega food
    retailers (pharmacies, bakeries, cafés, butchers, liquor, seafood).
-4. **Name tokens → confidence, NOT a gate:** DELI/GROCERY/MART/BODEGA/etc → `high`;
-   proper-named survivors → `medium`.
 
-**Do not hard-drop `medium`.** Many real bodegas have proper-name DBAs
-("LA ESQUINA"). Precision comes later: a `medium` store that matches a SNAP
+**Keep proper-named survivors.** Many real bodegas have proper-name DBAs
+("LA ESQUINA"). Precision comes later: a survivor that matches a SNAP
 "Convenience Store" type AND holds an SLA grocery-beer license is unambiguously a
 bodega. Hard-filtering at load throws that signal away.
 
@@ -172,7 +169,7 @@ clone the pattern for the other sources.
 2. **`transform.py`** — the bodega filter (see "The bodega filter" section above).
    Takes a DataFrame of raw SODA rows, returns the filtered/normalized frame with
    columns: `license_number, dba, entity, house, street, city, county, zip,
-   estab_type, lon, lat, bodega_confidence, join_key`. SODA field names are
+   estab_type, lon, lat, join_key`. SODA field names are
    lowercased/underscored (`dba_name`, `establishment_type`, `georeference`, etc.).
    Includes the `norm_house/norm_street/norm_zip` helpers (inline for now; move to
    `common/` when the SNAP loader needs them too).
@@ -214,5 +211,5 @@ Success = `SELECT count(*) FROM stores;` returns ~9.7k.
 - [ ] Add Cloud Scheduler trigger (monthly) once the run is green.
 - [ ] SNAP loader (ArcGIS FeatureServer, filter `State='NY'`, carries `Store_Type`).
 - [ ] SLA, tobacco, lottery, DOHMH loaders (same job pattern, different endpoints).
-- [ ] `joins/` — match flags onto spine via `join_key`; promote `medium`→bodega when
-      SNAP convenience-store + SLA grocery-beer corroborate.
+- [ ] `joins/` — match flags onto spine via `join_key`; confirm proper-named
+      survivors as bodegas when SNAP convenience-store + SLA grocery-beer corroborate.

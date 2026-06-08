@@ -38,9 +38,9 @@ def extract():
 
 UPSERT = sqlalchemy.text("""
     INSERT INTO stores (license_number, dba, entity, house, street, city, county,
-                        zip, estab_type, bodega_confidence, join_key, geom)
+                        zip, estab_type, join_key, geom)
     SELECT license_number, dba, entity, house, street, city, county, zip,
-           estab_type, bodega_confidence, join_key,
+           estab_type, join_key,
            ST_SetSRID(ST_MakePoint(lon::float, lat::float), 4326)
     FROM stage WHERE lon IS NOT NULL
     ON CONFLICT (license_number) DO UPDATE SET
@@ -52,7 +52,6 @@ UPSERT = sqlalchemy.text("""
         county = EXCLUDED.county,
         zip = EXCLUDED.zip,
         estab_type = EXCLUDED.estab_type,
-        bodega_confidence = EXCLUDED.bodega_confidence,
         join_key = EXCLUDED.join_key,
         geom = EXCLUDED.geom,
         ingested_at = now();

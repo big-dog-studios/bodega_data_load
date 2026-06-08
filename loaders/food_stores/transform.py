@@ -23,9 +23,6 @@ SPECIALTY = re.compile('|'.join(map(re.escape, [
     'PHARMACY', 'DRUG', ' RX', 'NUTRITION', 'BAKERY', 'CAFE', 'RESTAURANT',
     'LIQUOR', 'SEAFOOD', 'BUTCHER'])))
 
-# Name tokens that bump confidence to 'high' (NOT a gate).
-POS = re.compile(r'DELI|GROCERY|GROC|BODEGA|MINI ?MART|CONVENIENCE|CANDY|SMOKE|\bMART\b|CORNER')
-
 
 def _s(v):
     """Coerce to a clean string; missing/NaN -> ''."""
@@ -91,10 +88,6 @@ def transform(df):
     nm = df['dba_name'].fillna(df['entity_name']).fillna('').str.upper()
     df = df[~nm.str.contains(CHAINS) & ~nm.str.contains(SPECIALTY)]
 
-    # 4. Name tokens -> confidence (NOT a gate; medium survives).
-    nm = df['dba_name'].fillna(df['entity_name']).fillna('').str.upper()
-    confidence = nm.str.contains(POS).map({True: 'high', False: 'medium'})
-
     ll = df['georeference'].apply(_lonlat)
 
     return pd.DataFrame({
@@ -109,7 +102,6 @@ def transform(df):
         'estab_type': df['estab_type'],
         'lon': ll.map(lambda t: t[0]).values,
         'lat': ll.map(lambda t: t[1]).values,
-        'bodega_confidence': confidence.values,
         'join_key': (df['street_number'].map(_h) + ' '
                      + df['street_name'].map(_st) + ' '
                      + df['zip_code'].map(_z)).values,

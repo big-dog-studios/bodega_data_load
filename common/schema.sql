@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS stores (
   zip               text,
   geom              geometry(Point, 4326),
   estab_type        text,
-  bodega_confidence text,                          -- 'high' | 'medium'
   join_key          text,                          -- normalized, cross-source join
   ingested_at       timestamptz DEFAULT now()
 );
