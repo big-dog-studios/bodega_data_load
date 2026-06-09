@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS stores (
   join_key          text,                          -- normalized, cross-source join
   alc_class         integer,                        -- SLA license class_code (set by sla loader)
   has_tobacco       boolean NOT NULL DEFAULT false,  -- DCWP tobacco license (set by tobacco loader)
+  has_lottery       boolean NOT NULL DEFAULT false,  -- NYS lottery retailer (set by lottery loader)
+  has_quick_draw    boolean NOT NULL DEFAULT false,  -- lottery + offers Quick Draw (subset of has_lottery)
   ingested_at       timestamptz DEFAULT now()
 );
 

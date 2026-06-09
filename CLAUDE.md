@@ -238,6 +238,16 @@ and sets `stores.has_tobacco = true`. Purely corroborating — it never deletes 
 `not_bodega` concept). Address is pre-split (`address_building`/`address_street_name`)
 and geo is separate `latitude`/`longitude` columns, so no `split_address`/`lonlat`.
 
+## Lottery loader (additive flags)
+
+Same additive pattern against the NYS Lottery Retailers feed (`2vvn-pdyi`).
+Statewide (~13k rows, one page) with **no borough/county field**, so it does NOT
+filter — the join to the NYC-only spine drops out-of-city retailers. Matches by
+geocode (~15m) OR `join_key` and sets two flags: `stores.has_lottery` and
+`stores.has_quick_draw` (the Quick Draw `quick_draw='Y'` subset — a *negative*
+lean for bodega, since Quick Draw skews to seated bars/delis). `street` is combined
+(uses `split_address`); geo is `latitude`/`longitude`. Never deletes.
+
 Staging: every loader stages via `to_sql(if_exists="replace")` then `DROP TABLE`s
 its `*_stage` table inside the same transaction — no stage tables left behind.
 
@@ -249,12 +259,13 @@ its `*_stage` table inside the same transaction — no stage tables left behind.
 - [x] `loaders/sla/` — full loader (`9s3h-dpkz`) + `sla_license_codes` lookup +
       seed (`common/seed_sla_license_codes.sql`) + `stores.alc_class` column.
 - [x] `loaders/tobacco/` — additive loader (`adw8-wvxb`) + `stores.has_tobacco` column.
+- [x] `loaders/lottery/` — additive loader (`2vvn-pdyi`) + `stores.has_lottery` / `has_quick_draw`.
 - [ ] Create `stores` table + PostGIS extension in Cloud SQL; load `sla_license_codes` seed.
 - [ ] Deploy `food-stores-etl` Cloud Run Job; get first execution green (~9.7k rows).
 - [ ] Deploy `sla-etl` Cloud Run Job; schedule it AFTER food-stores.
-- [ ] Deploy `tobacco-etl` Cloud Run Job (additive; order vs others doesn't matter).
+- [ ] Deploy `tobacco-etl` + `lottery-etl` Cloud Run Jobs (additive; must run after food-stores).
 - [ ] Add Cloud Scheduler triggers once runs are green.
 - [ ] SNAP loader (ArcGIS FeatureServer, filter `State='NY'`, carries `Store_Type`).
-- [ ] lottery, DOHMH loaders (same job pattern, different endpoints).
+- [ ] DOHMH loader (same job pattern, different endpoint).
 - [ ] `joins/` — confirm proper-named survivors as bodegas when SNAP
       convenience-store + SLA grocery-beer corroborate.
