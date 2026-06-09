@@ -41,23 +41,27 @@ def extract():
     return pd.DataFrame(rows)
 
 
+# Build a geom column + indexes on the staged rows so matching uses the index.
+PREP = [
+    "ALTER TABLE tobacco_stage ADD COLUMN geom geometry(Point, 4326);",
+    "UPDATE tobacco_stage SET geom = ST_SetSRID(ST_MakePoint(lon, lat), 4326) "
+    "WHERE lon IS NOT NULL;",
+    "CREATE INDEX ON tobacco_stage USING gist (geom);",
+    "CREATE INDEX ON tobacco_stage (join_key);",
+    "ANALYZE tobacco_stage;",
+]
+
 # Clear stale flags so re-runs reflect only currently-active licenses.
 RESET = sqlalchemy.text("UPDATE stores SET has_tobacco = false WHERE has_tobacco;")
 
-# Flag stores that match an active tobacco license by geocode (~15m) OR join_key.
-TAG = sqlalchemy.text("""
-    UPDATE stores s
-    SET has_tobacco = true
-    WHERE EXISTS (
-        SELECT 1 FROM tobacco_stage st
-        WHERE (st.join_key <> '' AND st.join_key = s.join_key)
-           OR (st.lon IS NOT NULL AND s.geom IS NOT NULL
-               AND ST_DWithin(
-                     s.geom::geography,
-                     ST_SetSRID(ST_MakePoint(st.lon::float8, st.lat::float8), 4326)::geography,
-                     15))
-    );
-""")
+# Two index-backed passes: join_key equality, then GiST bbox + ST_DWithin (~15m).
+PASSES = [
+    "UPDATE stores s SET has_tobacco = true FROM tobacco_stage st "
+    "WHERE st.join_key <> '' AND st.join_key = s.join_key;",
+    "UPDATE stores s SET has_tobacco = true FROM tobacco_stage st "
+    "WHERE s.geom && ST_Expand(st.geom, 0.0003) "
+    "AND ST_DWithin(s.geom::geography, st.geom::geography, 15);",
+]
 
 
 def main():
@@ -76,8 +80,13 @@ def main():
     try:
         with eng.begin() as cx:
             out.to_sql("tobacco_stage", cx, if_exists="replace", index=False)
+            for stmt in PREP:
+                cx.execute(sqlalchemy.text(stmt))
             cx.execute(RESET)
-            tagged = cx.execute(TAG).rowcount
+            for stmt in PASSES:
+                cx.execute(sqlalchemy.text(stmt))
+            tagged = cx.execute(sqlalchemy.text(
+                "SELECT count(*) FROM stores WHERE has_tobacco")).scalar()
             cx.execute(sqlalchemy.text("DROP TABLE IF EXISTS tobacco_stage;"))
     finally:
         connector.close()
