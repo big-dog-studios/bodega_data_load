@@ -107,6 +107,7 @@ def main():
             cx.execute(RESET)
             deleted = cx.execute(DELETE).rowcount
             tagged = cx.execute(TAG).rowcount
+            cx.execute(sqlalchemy.text("DROP TABLE IF EXISTS sla_stage;"))
     finally:
         connector.close()
     print(f"sla: {len(out)} licenses -> deleted {deleted} stores, tagged {tagged}")

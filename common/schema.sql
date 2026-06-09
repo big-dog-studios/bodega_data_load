@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS stores (
   estab_type        text,
   join_key          text,                          -- normalized, cross-source join
   alc_class         integer,                        -- SLA license class_code (set by sla loader)
+  has_tobacco       boolean NOT NULL DEFAULT false,  -- DCWP tobacco license (set by tobacco loader)
   ingested_at       timestamptz DEFAULT now()
 );
 

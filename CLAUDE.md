@@ -230,6 +230,17 @@ CSV `Class` is zero-padded text (`0071`); cast to int to match `class_code`. The
 SLA address is one combined field, so `normalize.split_address` parses house/street
 (incl. the Queens grid hyphen case "97 10 32ND AVE" → house 97 / street 32ND AVE).
 
+## Tobacco loader (additive flag)
+
+Simpler clone of SLA against the DCWP feed (`adw8-wvxb`, NYC-only). Filters
+`license_status='Active'`, matches onto `stores` by geocode (~15m) OR `join_key`,
+and sets `stores.has_tobacco = true`. Purely corroborating — it never deletes (no
+`not_bodega` concept). Address is pre-split (`address_building`/`address_street_name`)
+and geo is separate `latitude`/`longitude` columns, so no `split_address`/`lonlat`.
+
+Staging: every loader stages via `to_sql(if_exists="replace")` then `DROP TABLE`s
+its `*_stage` table inside the same transaction — no stage tables left behind.
+
 ## Status / next steps
 
 - [x] `loaders/food_stores/` — `Dockerfile`, `requirements.txt`, `transform.py`, `job.py`.
@@ -237,11 +248,13 @@ SLA address is one combined field, so `normalize.split_address` parses house/str
       (copy-paste) into each loader folder so build contexts are self-contained.
 - [x] `loaders/sla/` — full loader (`9s3h-dpkz`) + `sla_license_codes` lookup +
       seed (`common/seed_sla_license_codes.sql`) + `stores.alc_class` column.
+- [x] `loaders/tobacco/` — additive loader (`adw8-wvxb`) + `stores.has_tobacco` column.
 - [ ] Create `stores` table + PostGIS extension in Cloud SQL; load `sla_license_codes` seed.
 - [ ] Deploy `food-stores-etl` Cloud Run Job; get first execution green (~9.7k rows).
 - [ ] Deploy `sla-etl` Cloud Run Job; schedule it AFTER food-stores.
+- [ ] Deploy `tobacco-etl` Cloud Run Job (additive; order vs others doesn't matter).
 - [ ] Add Cloud Scheduler triggers once runs are green.
 - [ ] SNAP loader (ArcGIS FeatureServer, filter `State='NY'`, carries `Store_Type`).
-- [ ] tobacco, lottery, DOHMH loaders (same job pattern, different endpoints).
+- [ ] lottery, DOHMH loaders (same job pattern, different endpoints).
 - [ ] `joins/` — confirm proper-named survivors as bodegas when SNAP
       convenience-store + SLA grocery-beer corroborate.
