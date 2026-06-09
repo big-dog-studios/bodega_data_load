@@ -265,6 +265,19 @@ equality, then a `&&` bbox-prefiltered `ST_DWithin`) instead of one `OR` — the
 `sla` keeps its original (more complex) `TAG` form on purpose; it's correct and runs
 on a schedule, and rewriting it risks the delete-precedence / grocery-preference logic.
 
+## SNAP loader (additive flag, ArcGIS source)
+
+Additive loader against the USDA SNAP retailer **ArcGIS FeatureServer** (not SODA) —
+`.../snap_retailer_location_data/FeatureServer/0/query`. The feed is national
+(~250k), so `extract()` prefilters server-side via the `where` clause
+(`State='NY' AND County IN (5 boroughs)`) and pages on `resultOffset`
+(`maxRecordCount` 1000 → ~9 pages of the ~8.6k NYC rows; never downloads the rest).
+Address is one combined field (`split_address`); geo is `Latitude`/`Longitude`
+(ignore the `X`/`Y` Web Mercator cols). Sets `stores.has_snap`; index-backed two-pass
+match like the other additive loaders; never deletes. The feed also carries
+`Store_Type` (Convenience Store / Grocery / Supermarket / …) — not loaded yet, but
+it's the one field that could *positively* classify rather than just flag.
+
 Staging: every loader stages via `to_sql(if_exists="replace")` then `DROP TABLE`s
 its `*_stage` table inside the same transaction — no stage tables left behind.
 
@@ -278,11 +291,15 @@ its `*_stage` table inside the same transaction — no stage tables left behind.
 - [x] `loaders/tobacco/` — additive loader (`adw8-wvxb`) + `stores.has_tobacco` column.
 - [x] `loaders/lottery/` — additive loader (`2vvn-pdyi`) + `stores.has_lottery` / `has_quick_draw`.
 - [x] `loaders/dohmh/` — additive loader (`43nn-pn8j`, deduped by camis) + `stores.has_prepared_food`.
+- [x] `loaders/snap/` — additive loader (USDA ArcGIS FeatureServer, NYC `where` prefilter) + `stores.has_snap`.
+- [x] All six sources built. The spine carries: `alc_class`, `has_tobacco`, `has_lottery`,
+      `has_quick_draw`, `has_prepared_food`, `has_snap`.
 - [ ] Create `stores` table + PostGIS extension in Cloud SQL; load `sla_license_codes` seed.
 - [ ] Deploy `food-stores-etl` Cloud Run Job; get first execution green (~9.7k rows).
 - [ ] Deploy `sla-etl` Cloud Run Job; schedule it AFTER food-stores.
-- [ ] Deploy `tobacco-etl` + `lottery-etl` + `dohmh-etl` Cloud Run Jobs (additive; run after food-stores).
+- [ ] Deploy `tobacco-etl` + `lottery-etl` + `dohmh-etl` + `snap-etl` (additive; run after food-stores).
 - [ ] Add Cloud Scheduler triggers once runs are green.
-- [ ] SNAP loader (ArcGIS FeatureServer, filter `State='NY'`, carries `Store_Type`) — last source.
+- [ ] `joins/` — confidence logic: promote proper-named survivors when SNAP
+      Store_Type + SLA grocery-beer + tobacco corroborate.
 - [ ] `joins/` — confirm proper-named survivors as bodegas when SNAP
       convenience-store + SLA grocery-beer corroborate.
