@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS stores (
   has_tobacco       boolean NOT NULL DEFAULT false,  -- DCWP tobacco license (set by tobacco loader)
   has_lottery       boolean NOT NULL DEFAULT false,  -- NYS lottery retailer (set by lottery loader)
   has_quick_draw    boolean NOT NULL DEFAULT false,  -- lottery + offers Quick Draw (subset of has_lottery)
+  has_prepared_food boolean NOT NULL DEFAULT false,  -- DOHMH-inspected food prep on premises (set by dohmh loader)
   ingested_at       timestamptz DEFAULT now()
 );
 

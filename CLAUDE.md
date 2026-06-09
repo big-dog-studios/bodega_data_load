@@ -248,6 +248,23 @@ geocode (~15m) OR `join_key` and sets two flags: `stores.has_lottery` and
 lean for bodega, since Quick Draw skews to seated bars/delis). `street` is combined
 (uses `split_address`); geo is `latitude`/`longitude`. Never deletes.
 
+## DOHMH loader (prepared-food flag)
+
+Additive loader against the DOHMH Restaurant Inspections feed (`43nn-pn8j`,
+NYC-only). The raw feed is **one row per violation per inspection**, so `extract()`
+dedupes server-side (`$select=camis,max(building)…&$group=camis`) to one row per
+establishment (~31k vs ~300k rows). Matches by geocode (~15m) OR `join_key` and sets
+`stores.has_prepared_food = true`. Presence means the place is inspected as a food
+*service* establishment (deli/grill), so DOHMH ∩ spine = the hot-food bodega; pure
+restaurants aren't in `stores` and fall away on the join. Never deletes.
+
+Performance: `tobacco`, `lottery`, and `dohmh` build a `geom` column + GiST/join_key
+indexes on their `*_stage` table, then match in two index-backed passes (join_key
+equality, then a `&&` bbox-prefiltered `ST_DWithin`) instead of one `OR` — the OR +
+`::geography` cast defeated the spatial index and made it a brute-force cross join.
+`sla` keeps its original (more complex) `TAG` form on purpose; it's correct and runs
+on a schedule, and rewriting it risks the delete-precedence / grocery-preference logic.
+
 Staging: every loader stages via `to_sql(if_exists="replace")` then `DROP TABLE`s
 its `*_stage` table inside the same transaction — no stage tables left behind.
 
@@ -260,12 +277,12 @@ its `*_stage` table inside the same transaction — no stage tables left behind.
       seed (`common/seed_sla_license_codes.sql`) + `stores.alc_class` column.
 - [x] `loaders/tobacco/` — additive loader (`adw8-wvxb`) + `stores.has_tobacco` column.
 - [x] `loaders/lottery/` — additive loader (`2vvn-pdyi`) + `stores.has_lottery` / `has_quick_draw`.
+- [x] `loaders/dohmh/` — additive loader (`43nn-pn8j`, deduped by camis) + `stores.has_prepared_food`.
 - [ ] Create `stores` table + PostGIS extension in Cloud SQL; load `sla_license_codes` seed.
 - [ ] Deploy `food-stores-etl` Cloud Run Job; get first execution green (~9.7k rows).
 - [ ] Deploy `sla-etl` Cloud Run Job; schedule it AFTER food-stores.
-- [ ] Deploy `tobacco-etl` + `lottery-etl` Cloud Run Jobs (additive; must run after food-stores).
+- [ ] Deploy `tobacco-etl` + `lottery-etl` + `dohmh-etl` Cloud Run Jobs (additive; run after food-stores).
 - [ ] Add Cloud Scheduler triggers once runs are green.
-- [ ] SNAP loader (ArcGIS FeatureServer, filter `State='NY'`, carries `Store_Type`).
-- [ ] DOHMH loader (same job pattern, different endpoint).
+- [ ] SNAP loader (ArcGIS FeatureServer, filter `State='NY'`, carries `Store_Type`) — last source.
 - [ ] `joins/` — confirm proper-named survivors as bodegas when SNAP
       convenience-store + SLA grocery-beer corroborate.
