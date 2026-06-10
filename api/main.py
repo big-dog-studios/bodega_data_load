@@ -6,6 +6,8 @@ Two endpoints (see api/CLAUDE.md):
 
 Deployed as a Cloud Run Service; DB via the shared Connector engine in db.py.
 """
+from typing import Optional
+
 import sqlalchemy
 from fastapi import FastAPI, HTTPException, Query
 
@@ -15,17 +17,28 @@ app = FastAPI(title="Bodega Map API", description="Read path over the bodega spi
 
 PIN_LIMIT = 2000
 
+# Boolean flag columns the frontend can badge pins with and filter on.
+FLAG_COLUMNS = (
+    "has_snap", "has_tobacco", "has_lottery", "has_quick_draw", "has_prepared_food",
+)
+
 # Light pins inside the viewport. `&&` uses the GiST index and is exact for
-# POINT geom (no ST_Intersects needed). Order by a flag-richness proxy so the
+# POINT geom (no ST_Intersects needed). Flags ride along (denormalized booleans,
+# no join) so the map can badge pins. Order by a flag-richness proxy so the
 # "fullest" bodegas surface first when a low-zoom box holds everything.
-PINS = sqlalchemy.text("""
-    SELECT license_number, dba, ST_Y(geom) AS lat, ST_X(geom) AS lon
+# {filters} is filled with column-name clauses built from a fixed allowlist
+# (FLAG_COLUMNS) — values stay bound, so no injection surface.
+PINS_TEMPLATE = """
+    SELECT license_number, dba, ST_Y(geom) AS lat, ST_X(geom) AS lon,
+           has_snap, has_tobacco, has_lottery, has_quick_draw, has_prepared_food,
+           alc_class
     FROM public.stores
     WHERE geom && ST_MakeEnvelope(:west, :south, :east, :north, 4326)
+      {filters}
     ORDER BY ( has_prepared_food::int + has_snap::int + has_tobacco::int
              + has_lottery::int + (alc_class IS NOT NULL)::int ) DESC
     LIMIT :lim;
-""")
+"""
 
 # Full record off the single row — flags are denormalized booleans, so no join
 # for them. LEFT JOIN the seeded SLA lookup only to label alc_class.
@@ -68,12 +81,36 @@ def health():
 
 
 @app.get("/stores")
-def list_stores(bbox: str = Query(..., description="Viewport: west,south,east,north (minLon,minLat,maxLon,maxLat)")):
+def list_stores(
+    bbox: str = Query(..., description="Viewport: west,south,east,north (minLon,minLat,maxLon,maxLat)"),
+    has_snap: Optional[bool] = Query(None, description="Filter: true = only SNAP, false = only non-SNAP, omit = no filter"),
+    has_tobacco: Optional[bool] = Query(None),
+    has_lottery: Optional[bool] = Query(None),
+    has_quick_draw: Optional[bool] = Query(None),
+    has_prepared_food: Optional[bool] = Query(None),
+    has_alcohol: Optional[bool] = Query(None, description="Filter on alc_class presence (true = has a license, false = none)"),
+):
     west, south, east, north = _parse_bbox(bbox)
+    params = {"west": west, "south": south, "east": east, "north": north, "lim": PIN_LIMIT}
+
+    # Tri-state flag filters: None = no filter, True/False = equality on the column.
+    # Column names come from the FLAG_COLUMNS allowlist, never user input.
+    clauses = []
+    flag_args = {
+        "has_snap": has_snap, "has_tobacco": has_tobacco, "has_lottery": has_lottery,
+        "has_quick_draw": has_quick_draw, "has_prepared_food": has_prepared_food,
+    }
+    for col in FLAG_COLUMNS:
+        val = flag_args[col]
+        if val is not None:
+            clauses.append(f"AND {col} = :{col}")
+            params[col] = val
+    if has_alcohol is not None:
+        clauses.append("AND alc_class IS " + ("NOT NULL" if has_alcohol else "NULL"))
+
+    sql = sqlalchemy.text(PINS_TEMPLATE.format(filters="\n      ".join(clauses)))
     with engine.connect() as cx:
-        rows = cx.execute(
-            PINS, {"west": west, "south": south, "east": east, "north": north, "lim": PIN_LIMIT}
-        ).mappings().all()
+        rows = cx.execute(sql, params).mappings().all()
     return [dict(r) for r in rows]
 
 
