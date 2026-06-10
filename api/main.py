@@ -31,7 +31,7 @@ FLAG_COLUMNS = (
 PINS_TEMPLATE = """
     SELECT license_number, dba, ST_Y(geom) AS lat, ST_X(geom) AS lon,
            has_snap, has_tobacco, has_lottery, has_quick_draw, has_prepared_food,
-           alc_class
+           (alc_class IS NOT NULL) AS has_alcohol
     FROM public.stores
     WHERE geom && ST_MakeEnvelope(:west, :south, :east, :north, 4326)
       {filters}
