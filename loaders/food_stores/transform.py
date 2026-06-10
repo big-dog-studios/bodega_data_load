@@ -14,15 +14,70 @@ BOROS = {'BRONX', 'KINGS', 'NEW YORK', 'QUEENS', 'RICHMOND'}
 # Keep a row only if its code contains 'A' (Store) and NONE of these.
 DISQ = set('DEFGHILMNOPQRSTUVWZ')
 
-# Chains / big-box / non-bodega food retailers — drop outright (high precision).
-CHAINS = re.compile('|'.join(map(re.escape, [
-    'TRADER JOE', 'WHOLE FOODS', 'KEY FOOD', 'C-TOWN', 'CTOWN', 'FOODTOWN',
-    'GRISTEDE', 'DUANE READE', 'CVS', 'WALGREEN', 'RITE AID', '7-ELEVEN',
-    '7 ELEVEN', 'DOLLAR TREE', 'DOLLAR GENERAL', 'TARGET', 'COSTCO', 'ALDI',
-    'LIDL', 'STOP & SHOP', 'FINE FARE', 'FOOD BAZAAR', 'TRADE FAIR'])))
-SPECIALTY = re.compile('|'.join(map(re.escape, [
-    'PHARMACY', 'DRUG', ' RX', 'NUTRITION', 'BAKERY', 'CAFE', 'RESTAURANT',
-    'LIQUOR', 'SEAFOOD', 'BUTCHER'])))
+# --- Name filter: four stages, in priority order ---------------------------
+# The gov flags (tobacco/lottery/snap/alc_class) do NOT separate bodegas from
+# supermarkets or restaurants — a full grocery store trips MORE flags, not fewer.
+# So the discriminator is the DBA name. Matching is on a punctuation-normalized
+# name with word boundaries, so "C TOWN" and "C-TOWN" both hit (the old list
+# missed the spaced spelling and let all 53 C-Town rows through).
+
+# 1. Chain blocklist — supermarket / gas / specialty brands. DROP unconditionally;
+#    outranks keep-words so "CHERRY VALLEY MARKET" still drops. Cherry Valley uses
+#    several suffixes (FARM/MARKET/MARKETPLACE/GOURMET DELI) — the prefix catches all.
+_CHAINS = [
+    # supermarket chains
+    'CHERRY VALLEY', 'C TOWN', 'CTOWN', 'IDEAL FOOD BASKET', 'FOOD UNIVERSE',
+    'BRAVO SUPERMARKET', 'SHOP FAIR', 'ASSOCIATED', 'FOOD EMPORIUM',
+    'MORTON WILLIAMS', 'PIONEER', 'MET FOOD', 'MET FRESH', 'CITY FRESH MARKET',
+    'LINCOLN MARKET', 'FOOD TOWN', 'FOODTOWN', 'UNION MARKET', 'H MART',
+    'WESTSIDE MARKET', 'BROOKLYN FARE', 'FOOD DYNASTY', 'WESTERN BEEF',
+    'BROOKLYN HARVEST', 'SUPER FRESH', 'SUPERFRESH', 'MARKET FRESH SUPERMARKET',
+    'PREMIUM SUPERMARKET', 'FAIRWAY', 'D AGOSTINO', 'COMPARE FOODS',
+    'GOURMET GARAGE', 'FOOD BAZAAR', 'KEY FOOD', 'GRISTEDE', 'GRISTEDES',
+    'TRADE FAIR', 'FINE FARE', 'WHOLE FOODS', 'TRADER JOE', 'ALDI', 'LIDL',
+    'TARGET', 'COSTCO', 'DOLLAR TREE', 'DOLLAR GENERAL', '7 ELEVEN',
+    'DUANE READE', 'CVS', 'WALGREEN', 'RITE AID',
+    # gas-station c-stores (NOT bare "BP" — collides with bodega initials)
+    'MOBIL', 'SUNOCO', 'SHELL', 'EXXON', 'GULF', 'CITGO', 'SPEEDWAY', 'WAWA',
+    'QUICK CHEK',
+    # specialty / dessert / non-grocery chains
+    'EDIBLE ARRANGEMENTS', 'NUTS FACTORY', 'BAKED BY MELISSA', 'NEUHAUS',
+    'PASTOSA', 'TESOLIFE',
+]
+# 2. Hard non-bodega words — a dedicated pharmacy/liquor/butcher is never a bodega.
+#    DROP even if a store-type word is present.
+_HARD_KILL = ['PHARMACY', 'DRUG', 'DRUGS', 'RX', 'NUTRITION', 'LIQUOR',
+              'SEAFOOD', 'BUTCHER']
+# 3. Store-type keep-words — bodega vocabulary. KEEP regardless of any soft-kill
+#    word (e.g. PARROT COFFEE GROCERY, VITALITY BAGELS & MARKET).
+_KEEP = ['MARKET', 'GROCERY', 'GROCERIES', 'DELI', 'BODEGA', 'MINI MART',
+         'MINIMART', 'CONVENIENCE', 'SMOKE']
+# 4. Soft restaurant/cafe kill-words — DROP only when no keep-word present.
+#    Deliberately excludes GRILL / BAGEL / DELI / KITCHEN: bodega-deli vocabulary.
+_SOFT_KILL = ['SUSHI', 'COFFEE', 'CAFE', 'CAFETERIA', 'RESTAURANT', 'BAKERY',
+              'RAMEN', 'THAI', 'POKE', 'BISTRO', 'CHOCOLATE', 'CHOCOLATIER',
+              'DESSERT', 'DESSERTS', 'JUICE PRESS', 'JUICE BAR', 'NOODLE',
+              'NOODLES', 'BURGER', 'BURGERS', 'TACO', 'TACOS', 'TAQUERIA',
+              'PIZZA', 'PIZZERIA', 'CREAMERY', 'GELATO', 'SMOOTHIE',
+              'SMOOTHIES', 'EATERY', 'DINER', 'BBQ', 'TRATTORIA']
+
+
+def _rx(words):
+    return re.compile(r'\b(?:' + '|'.join(map(re.escape, words)) + r')\b')
+
+
+CHAINS, HARD_KILL, KEEP, SOFT_KILL = (
+    _rx(_CHAINS), _rx(_HARD_KILL), _rx(_KEEP), _rx(_SOFT_KILL))
+
+
+def keep_name(name):
+    """Name filter: chain → hard-kill → keep-word → soft-kill → default keep."""
+    n = re.sub(r'\s+', ' ', re.sub(r'[^A-Z0-9 ]', ' ', (name or '').upper())).strip()
+    if CHAINS.search(n) or HARD_KILL.search(n):
+        return False
+    if KEEP.search(n):
+        return True
+    return not SOFT_KILL.search(n)
 
 
 def is_retail(c):
@@ -39,9 +94,9 @@ def transform(df):
     df = df[df['county'].str.upper().isin(BOROS)]
     # 2. Structural retail gate.
     df = df[df['estab_type'].apply(is_retail)]
-    # 3. Name exclusions (chains + specialty).
-    nm = df['dba_name'].fillna(df['entity_name']).fillna('').str.upper()
-    df = df[~nm.str.contains(CHAINS) & ~nm.str.contains(SPECIALTY)]
+    # 3. Name filter (chain → hard-kill → keep-word → soft-kill).
+    nm = df['dba_name'].fillna(df['entity_name']).fillna('')
+    df = df[nm.apply(keep_name)]
 
     ll = df['georeference'].apply(lonlat)
 
