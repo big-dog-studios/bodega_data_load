@@ -41,3 +41,29 @@ CREATE TABLE IF NOT EXISTS sla_license_codes (
   not_bodega        boolean NOT NULL DEFAULT false,  -- true = dedicated packaged-alcohol retailer (Wine/Liquor Store), exclude
   PRIMARY KEY (type_code, class_code)
 );
+
+-- Crowdsourced field surveys (the API write path). A surveyor stands in a store,
+-- confirms the flags, records hours, and attaches a receipt / photos / a video.
+-- Distinct from the spine: this is human ground-truth, NOT a government feed.
+-- gen_random_uuid() needs pgcrypto on PG<13; harmless to enable everywhere.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE TABLE IF NOT EXISTS submissions (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  license_number  text NOT NULL,        -- SOFT ref to stores; no FK on purpose —
+                                        -- food-stores/sla loaders DELETE & re-add
+                                        -- store rows on refresh, which would cascade
+                                        -- away survey data. Also lets a surveyor log
+                                        -- a bodega not yet in the spine.
+  -- The four survey answers, one typed column each (yes->true, no->false, omitted
+  -- ->NULL). Named to mirror the spine's flags so a surveyor's answer diffs
+  -- directly against the government signal (e.g. prepared_food vs stores.has_prepared_food).
+  prepared_food   boolean,
+  lottery         boolean,
+  alcohol         boolean,
+  tobacco         boolean,
+  hours           text,
+  receipt         text,                 -- GCS object path, or NULL — bytes live in the bucket
+  photos          text[] NOT NULL DEFAULT '{}',  -- GCS object paths
+  submitted_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS submissions_license_ix ON submissions (license_number);

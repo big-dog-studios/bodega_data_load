@@ -1,17 +1,26 @@
-"""Map read API over the `stores` spine (FastAPI, read-only).
+"""Map read API over the `stores` spine + the crowdsourced survey write path.
 
-Two endpoints (see api/CLAUDE.md):
-  GET /stores?bbox=west,south,east,north  -> light pins for the viewport.
-  GET /stores/{license_number}            -> one full record (detail-on-tap).
+Read (see api/CLAUDE.md):
+  GET  /stores?bbox=west,south,east,north  -> light pins for the viewport.
+  GET  /stores/{license_number}            -> one full record (detail-on-tap).
+
+Write (field surveys -> `submissions`):
+  POST /submissions  (multipart/form-data)  -> save one survey + its photos.
+
+One call: the client sends the answer fields plus photo files as multipart; the
+service streams each file to GCS (storage.py) and stores only the object path on
+the row. Fine for a handful of photos — total request is bounded by Cloud Run's
+32 MB cap (no video here, so that's plenty of headroom).
 
 Deployed as a Cloud Run Service; DB via the shared Connector engine in db.py.
 """
-from typing import Optional
+from typing import List, Optional
 
 import sqlalchemy
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 
 from db import engine
+from storage import upload_file
 
 app = FastAPI(title="Bodega Map API", description="Read path over the bodega spine.")
 
@@ -121,3 +130,56 @@ def get_store(license_number: str):
     if row is None:
         raise HTTPException(404, "store not found")
     return dict(row)
+
+
+# ---------------------------------------------------------------------------
+# Write path: crowdsourced field surveys -> `submissions`
+# ---------------------------------------------------------------------------
+
+INSERT = sqlalchemy.text("""
+    INSERT INTO submissions (license_number, prepared_food, lottery, alcohol, tobacco,
+                             hours, receipt, photos)
+    VALUES (:license_number, :prepared_food, :lottery, :alcohol, :tobacco,
+            :hours, :receipt, :photos)
+    RETURNING id, submitted_at;
+""")
+
+
+def _yn(v: Optional[str]) -> Optional[bool]:
+    """yes/no survey answer -> bool; anything else (incl. omitted) -> NULL."""
+    if v is None:
+        return None
+    s = v.strip().lower()
+    return True if s in ("yes", "y", "true") else False if s in ("no", "n", "false") else None
+
+
+@app.post("/submissions", status_code=201)
+def create_submission(
+    # The survey is sent as multipart/form-data: scalar answers as form fields,
+    # photos as file parts in the same request. FastAPI maps each part by name.
+    license_number: str = Form(...),
+    prepared_food: Optional[str] = Form(None),  # "yes"/"no" — coerced to bool below
+    lottery: Optional[str] = Form(None),
+    alcohol: Optional[str] = Form(None),
+    tobacco: Optional[str] = Form(None),
+    hours: Optional[str] = Form(None),
+    receipt: Optional[UploadFile] = File(None),  # one receipt photo, optional
+    photos: List[UploadFile] = File(default=[]),  # zero or more store photos
+):
+    """Persist one survey. Photo files stream to GCS; the row stores their paths."""
+    receipt_path = upload_file(license_number, "receipt", receipt) if receipt else None
+    photo_paths = [upload_file(license_number, "photo", p) for p in photos]
+
+    params = {
+        "license_number": license_number,
+        "prepared_food": _yn(prepared_food),
+        "lottery": _yn(lottery),
+        "alcohol": _yn(alcohol),
+        "tobacco": _yn(tobacco),
+        "hours": hours,
+        "receipt": receipt_path,
+        "photos": photo_paths,
+    }
+    with engine.begin() as cx:
+        row = cx.execute(INSERT, params).mappings().first()
+    return {"id": str(row["id"]), "submitted_at": row["submitted_at"].isoformat()}
