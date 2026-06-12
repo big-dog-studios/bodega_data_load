@@ -138,9 +138,9 @@ def get_store(license_number: str):
 
 INSERT = sqlalchemy.text("""
     INSERT INTO submissions (license_number, prepared_food, lottery, alcohol, tobacco,
-                             hours, receipt, photos)
+                             atm, cat, hours, receipt, photos)
     VALUES (:license_number, :prepared_food, :lottery, :alcohol, :tobacco,
-            :hours, :receipt, :photos)
+            :atm, :cat, :hours, :receipt, :photos)
     RETURNING id, submitted_at;
 """)
 
@@ -162,6 +162,8 @@ def create_submission(
     lottery: Optional[str] = Form(None),
     alcohol: Optional[str] = Form(None),
     tobacco: Optional[str] = Form(None),
+    atm: Optional[str] = Form(None),  # "yes"/"no" — coerced to bool below
+    cat: Optional[str] = Form(None),  # bodega cat present?
     hours: Optional[str] = Form(None),
     receipt: Optional[UploadFile] = File(None),  # one receipt photo, optional
     photos: List[UploadFile] = File(default=[]),  # zero or more store photos
@@ -176,6 +178,8 @@ def create_submission(
         "lottery": _yn(lottery),
         "alcohol": _yn(alcohol),
         "tobacco": _yn(tobacco),
+        "atm": _yn(atm),
+        "cat": _yn(cat),
         "hours": hours,
         "receipt": receipt_path,
         "photos": photo_paths,

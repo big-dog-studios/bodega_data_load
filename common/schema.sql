@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS submissions (
   lottery         boolean,
   alcohol         boolean,
   tobacco         boolean,
+  atm             boolean,              -- ATM on premises (survey-only; no government feed)
+  cat             boolean,              -- bodega cat present (survey-only)
   hours           text,
   receipt         text,                 -- GCS object path, or NULL — bytes live in the bucket
   photos          text[] NOT NULL DEFAULT '{}',  -- GCS object paths
