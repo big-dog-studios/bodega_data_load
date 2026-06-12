@@ -29,6 +29,7 @@ PIN_LIMIT = 2000
 # Boolean flag columns the frontend can badge pins with and filter on.
 FLAG_COLUMNS = (
     "has_snap", "has_tobacco", "has_lottery", "has_quick_draw", "has_prepared_food",
+    "has_cat", "has_atm", "takeout", "delivery",
 )
 
 # Light pins inside the viewport. `&&` uses the GiST index and is exact for
@@ -100,6 +101,10 @@ def list_stores(
     has_lottery: Optional[bool] = Query(None),
     has_quick_draw: Optional[bool] = Query(None),
     has_prepared_food: Optional[bool] = Query(None),
+    has_cat: Optional[bool] = Query(None, description="Filter: bodega cat present"),
+    has_atm: Optional[bool] = Query(None, description="Filter: ATM on premises"),
+    takeout: Optional[bool] = Query(None, description="Filter: offers takeout"),
+    delivery: Optional[bool] = Query(None, description="Filter: offers delivery"),
     has_alcohol: Optional[bool] = Query(None, description="Filter on alc_class presence (true = has a license, false = none)"),
 ):
     west, south, east, north = _parse_bbox(bbox)
@@ -111,6 +116,7 @@ def list_stores(
     flag_args = {
         "has_snap": has_snap, "has_tobacco": has_tobacco, "has_lottery": has_lottery,
         "has_quick_draw": has_quick_draw, "has_prepared_food": has_prepared_food,
+        "has_cat": has_cat, "has_atm": has_atm, "takeout": takeout, "delivery": delivery,
     }
     for col in FLAG_COLUMNS:
         val = flag_args[col]
@@ -119,6 +125,8 @@ def list_stores(
             params[col] = val
     if has_alcohol is not None:
         clauses.append("AND alc_class IS " + ("NOT NULL" if has_alcohol else "NULL"))
+    # TODO: "open now" filter — needs structured hours (weekly open/close periods)
+    # to compare against current NYC time. hours_summary is free text, not queryable.
 
     sql = sqlalchemy.text(PINS_TEMPLATE.format(filters="\n      ".join(clauses)))
     with engine.connect() as cx:
