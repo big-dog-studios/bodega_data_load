@@ -37,7 +37,7 @@ _CHAINS = [
     'GOURMET GARAGE', 'FOOD BAZAAR', 'KEY FOOD', 'GRISTEDE', 'GRISTEDES',
     'TRADE FAIR', 'FINE FARE', 'WHOLE FOODS', 'TRADER JOE', 'ALDI', 'LIDL',
     'TARGET', 'COSTCO', 'DOLLAR TREE', 'DOLLAR GENERAL', 'FAMILY DOLLAR', '7 ELEVEN',
-    'DUANE READE', 'CVS', 'WALGREEN', 'RITE AID',
+    'DUANE READ', 'CVS', 'WALGREEN', 'RITE AID',
     # gas-station c-stores (NOT bare "BP" — collides with bodega initials)
     'MOBIL', 'SUNOCO', 'SHELL', 'EXXON', 'GULF', 'CITGO', 'SPEEDWAY', 'WAWA',
     'QUICK CHEK',

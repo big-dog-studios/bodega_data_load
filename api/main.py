@@ -57,6 +57,9 @@ DETAIL = sqlalchemy.text("""
            s.has_snap, s.has_tobacco, s.has_lottery, s.has_quick_draw,
            s.has_prepared_food, s.has_atm, s.has_cat, s.cat_name,
            s.alc_class, lc.class_description AS alc_description, lc.product AS alc_product,
+           s.place_id, s.display_name, s.phone, s.rating, s.user_rating_count,
+           s.accepts_credit_cards, s.accepts_debit_cards, s.accepts_cash_only,
+           s.accepts_nfc, s.takeout, s.delivery, s.hours_summary,
            ST_Y(s.geom) AS lat, ST_X(s.geom) AS lon
     FROM public.stores s
     LEFT JOIN sla_license_codes lc ON lc.class_code = s.alc_class

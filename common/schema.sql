@@ -22,9 +22,22 @@ CREATE TABLE IF NOT EXISTS stores (
   has_quick_draw    boolean NOT NULL DEFAULT false,  -- lottery + offers Quick Draw (subset of has_lottery)
   has_prepared_food boolean NOT NULL DEFAULT false,  -- DOHMH-inspected food prep on premises (set by dohmh loader)
   has_snap          boolean NOT NULL DEFAULT false,  -- USDA SNAP-authorized retailer (set by snap loader)
-  has_atm           boolean,                         -- ATM on premises (no government feed — survey-only)
-  has_cat           boolean,                         -- bodega cat present (survey-only)
+  has_cat           boolean NOT NULL DEFAULT false,  -- bodega cat present (survey-only)
   cat_name          text,                            -- the cat's name, if any (free text)
+  has_atm           boolean NOT NULL DEFAULT false,  -- ATM on premises (survey-only)
+  -- Google Places enrichment (set by the places loader; all nullable until enriched).
+  place_id             text,                          -- Google Places resource id
+  display_name         text,                          -- Places-formatted name
+  phone                text,
+  rating               numeric(2,1),                  -- 0.0–5.0
+  user_rating_count    integer,
+  accepts_credit_cards boolean,
+  accepts_debit_cards  boolean,
+  accepts_cash_only    boolean,
+  accepts_nfc          boolean,                        -- contactless/tap payments
+  takeout              boolean,
+  delivery             boolean,
+  hours_summary        text,
   ingested_at       timestamptz DEFAULT now()
 );
 
