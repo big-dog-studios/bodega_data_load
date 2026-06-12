@@ -28,6 +28,7 @@ _CHAINS = [
     # supermarket chains
     'CHERRY VALLEY', 'C TOWN', 'CTOWN', 'IDEAL FOOD BASKET', 'FOOD UNIVERSE',
     'BRAVO SUPERMARKET', 'SHOP FAIR', 'ASSOCIATED', 'FOOD EMPORIUM',
+    'STOP SHOP',  # "STOP & SHOP" — & normalizes to a space, so no ampersand here
     'MORTON WILLIAMS', 'PIONEER', 'MET FOOD', 'MET FRESH', 'CITY FRESH MARKET',
     'LINCOLN MARKET', 'FOOD TOWN', 'FOODTOWN', 'UNION MARKET', 'H MART',
     'WESTSIDE MARKET', 'BROOKLYN FARE', 'FOOD DYNASTY', 'WESTERN BEEF',
@@ -35,7 +36,7 @@ _CHAINS = [
     'PREMIUM SUPERMARKET', 'FAIRWAY', 'D AGOSTINO', 'COMPARE FOODS',
     'GOURMET GARAGE', 'FOOD BAZAAR', 'KEY FOOD', 'GRISTEDE', 'GRISTEDES',
     'TRADE FAIR', 'FINE FARE', 'WHOLE FOODS', 'TRADER JOE', 'ALDI', 'LIDL',
-    'TARGET', 'COSTCO', 'DOLLAR TREE', 'DOLLAR GENERAL', '7 ELEVEN',
+    'TARGET', 'COSTCO', 'DOLLAR TREE', 'DOLLAR GENERAL', 'FAMILY DOLLAR', '7 ELEVEN',
     'DUANE READE', 'CVS', 'WALGREEN', 'RITE AID',
     # gas-station c-stores (NOT bare "BP" — collides with bodega initials)
     'MOBIL', 'SUNOCO', 'SHELL', 'EXXON', 'GULF', 'CITGO', 'SPEEDWAY', 'WAWA',
@@ -62,12 +63,17 @@ _SOFT_KILL = ['SUSHI', 'COFFEE', 'CAFE', 'CAFETERIA', 'RESTAURANT', 'BAKERY',
               'SMOOTHIES', 'EATERY', 'DINER', 'BBQ', 'TRATTORIA']
 
 
-def _rx(words):
-    return re.compile(r'\b(?:' + '|'.join(map(re.escape, words)) + r')\b')
+def _rx(words, suffix=False):
+    # suffix=True lets a stem also catch plural/suffixed forms by allowing trailing
+    # word chars on the last token ("WALGREEN"->"WALGREENS", "KEY FOOD"->"KEY FOODS").
+    # Only safe on the CHAINS drop-list; on KEEP it would match DELI->DELICIOUS and
+    # wrongly keep cafes, so the other lists stay strict whole-word.
+    tail = r'\w*\b' if suffix else r'\b'
+    return re.compile(r'\b(?:' + '|'.join(map(re.escape, words)) + r')' + tail)
 
 
-CHAINS, HARD_KILL, KEEP, SOFT_KILL = (
-    _rx(_CHAINS), _rx(_HARD_KILL), _rx(_KEEP), _rx(_SOFT_KILL))
+CHAINS = _rx(_CHAINS, suffix=True)
+HARD_KILL, KEEP, SOFT_KILL = _rx(_HARD_KILL), _rx(_KEEP), _rx(_SOFT_KILL)
 
 
 def keep_name(name):
