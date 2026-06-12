@@ -55,7 +55,7 @@ DETAIL = sqlalchemy.text("""
     SELECT s.license_number, s.dba, s.entity,
            s.house, s.street, s.city, s.county, s.zip, s.estab_type,
            s.has_snap, s.has_tobacco, s.has_lottery, s.has_quick_draw,
-           s.has_prepared_food,
+           s.has_prepared_food, s.has_atm, s.has_cat, s.cat_name,
            s.alc_class, lc.class_description AS alc_description, lc.product AS alc_product,
            ST_Y(s.geom) AS lat, ST_X(s.geom) AS lon
     FROM public.stores s

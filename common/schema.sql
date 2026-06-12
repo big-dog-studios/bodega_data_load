@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS stores (
   has_quick_draw    boolean NOT NULL DEFAULT false,  -- lottery + offers Quick Draw (subset of has_lottery)
   has_prepared_food boolean NOT NULL DEFAULT false,  -- DOHMH-inspected food prep on premises (set by dohmh loader)
   has_snap          boolean NOT NULL DEFAULT false,  -- USDA SNAP-authorized retailer (set by snap loader)
+  has_atm           boolean,                         -- ATM on premises (no government feed — survey-only)
+  has_cat           boolean,                         -- bodega cat present (survey-only)
+  cat_name          text,                            -- the cat's name, if any (free text)
   ingested_at       timestamptz DEFAULT now()
 );
 
