@@ -135,6 +135,7 @@ def list_stores(
     takeout: Optional[bool] = Query(None, description="Filter: offers takeout"),
     delivery: Optional[bool] = Query(None, description="Filter: offers delivery"),
     has_alcohol: Optional[bool] = Query(None, description="Filter on alc_class presence (true = has a license, false = none)"),
+    has_products: Optional[bool] = Query(None, description="Filter: true = only stores with catalog items, false = only stores with none"),
 ):
     west, south, east, north = _parse_bbox(bbox)
     params = {"west": west, "south": south, "east": east, "north": north, "lim": PIN_LIMIT}
@@ -154,6 +155,15 @@ def list_stores(
             params[col] = val
     if has_alcohol is not None:
         clauses.append("AND alc_class IS " + ("NOT NULL" if has_alcohol else "NULL"))
+    # "Has items" isn't a column on stores — it's the presence of products rows.
+    # EXISTS short-circuits and rides the products.license_number index; no static
+    # values come from the request, so nothing to bind.
+    if has_products is not None:
+        exists = ("EXISTS" if has_products else "NOT EXISTS")
+        clauses.append(
+            f"AND {exists} (SELECT 1 FROM public.products p "
+            "WHERE p.license_number = stores.license_number)"
+        )
     # TODO: "open now" filter — needs structured hours (weekly open/close periods)
     # to compare against current NYC time. hours_summary is free text, not queryable.
 
