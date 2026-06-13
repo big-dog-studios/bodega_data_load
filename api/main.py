@@ -67,6 +67,34 @@ DETAIL = sqlalchemy.text("""
     WHERE s.license_number = :lid;
 """)
 
+# All products for one store, each labeled with its category + emoji from the
+# product_categories lookup (LEFT JOIN — a product with a NULL/unknown category_id
+# still returns, falling back to its denormalized `category` text). Ordered by the
+# category sort_order so the client can render sections in a stable order.
+PRODUCTS = sqlalchemy.text("""
+    SELECT p.product_id, p.name, p.description, p.price_cents, p.price_raw, p.source,
+           p.category_id,
+           COALESCE(c.label, p.category) AS category,
+           c.slug AS category_slug, c.emoji, c.is_packaged
+    FROM public.products p
+    LEFT JOIN public.product_categories c ON c.category_id = p.category_id
+    WHERE p.license_number = :lid
+    ORDER BY c.sort_order NULLS LAST, COALESCE(c.label, p.category), p.name;
+""")
+
+# Facets: the ENTIRE category list (not just categories this store stocks), each
+# with a count of this store's products in it — so the client can render every
+# category chip, badging/greying the empty ones. LEFT JOIN keeps zero-count rows.
+FACETS = sqlalchemy.text("""
+    SELECT c.category_id, c.slug, c.label, c.emoji, c.is_packaged, c.sort_order,
+           count(p.product_id) AS product_count
+    FROM public.product_categories c
+    LEFT JOIN public.products p
+           ON p.category_id = c.category_id AND p.license_number = :lid
+    GROUP BY c.category_id
+    ORDER BY c.sort_order NULLS LAST, c.label;
+""")
+
 
 def _parse_bbox(bbox: str):
     parts = bbox.split(",")
@@ -141,6 +169,20 @@ def get_store(license_number: str):
     if row is None:
         raise HTTPException(404, "store not found")
     return dict(row)
+
+
+@app.get("/stores/{license_number}/products")
+def get_products(license_number: str):
+    """All products for a store (with category + emoji) plus the full category
+    list as facets (with per-store counts)."""
+    with engine.connect() as cx:
+        products = cx.execute(PRODUCTS, {"lid": license_number}).mappings().all()
+        facets = cx.execute(FACETS, {"lid": license_number}).mappings().all()
+    return {
+        "license_number": license_number,
+        "products": [dict(r) for r in products],
+        "facets": [dict(r) for r in facets],
+    }
 
 
 # ---------------------------------------------------------------------------
