@@ -74,6 +74,7 @@ DETAIL = sqlalchemy.text("""
 PRODUCTS = sqlalchemy.text("""
     SELECT p.product_id, p.name, p.description, p.price_cents, p.price_raw, p.source,
            p.category_id,
+           p.category AS friendly_category,
            COALESCE(c.label, p.category) AS category,
            c.slug AS category_slug, c.emoji, c.is_packaged
     FROM public.products p
