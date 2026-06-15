@@ -208,8 +208,8 @@ INSERT = sqlalchemy.text("""
                              prepared_food, lottery, alcohol, tobacco,
                              atm, cat, hours, receipt, photos)
     VALUES (:license_number, :mode, :name, :address,
-            CASE WHEN :lat IS NULL OR :lon IS NULL THEN NULL
-                 ELSE ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) END,
+            CASE WHEN :lat::float8 IS NULL OR :lon::float8 IS NULL THEN NULL
+                 ELSE ST_SetSRID(ST_MakePoint(:lon::float8, :lat::float8), 4326) END,
             :prepared_food, :lottery, :alcohol, :tobacco,
             :atm, :cat, :hours, :receipt, :photos)
     RETURNING id, license_number, submitted_at;
