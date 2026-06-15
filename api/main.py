@@ -16,16 +16,32 @@ the row. Fine for a handful of photos — total request is bounded by Cloud Run'
 
 Deployed as a Cloud Run Service; DB via the shared Connector engine in db.py.
 """
+import os
 import uuid
 from typing import List, Optional
 
 import sqlalchemy
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 
 from db import engine
 from storage import upload_file
 
 app = FastAPI(title="Bodega Map API", description="Read path over the bodega spine.")
+
+# CORS: allow only our own app origin(s) to call the API from a browser. This is
+# browser-enforced — it blocks other *websites'* JS from calling us, but does
+# nothing to curl/scripts (those are guarded at the gateway layer). Origins come
+# from ALLOWED_ORIGINS (comma-separated) so prod vs. local differ by config, not
+# code; unset falls back to the Vite dev server for local work.
+_origins = [o.strip() for o in os.environ.get(
+    "ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 PIN_LIMIT = 2000
 

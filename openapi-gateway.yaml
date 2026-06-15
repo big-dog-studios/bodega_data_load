@@ -1,0 +1,83 @@
+# API Gateway spec for the bodega read API + survey write path.
+#
+# This is the "front door" config: it lists the routes, points them at the
+# Cloud Run backend, and requires the global API key (x-api-key header) on every
+# request. The gateway is built from this file:
+#
+#   gcloud api-gateway api-configs create bodega-cfg \
+#     --api=bodega-api-gw --openapi-spec=openapi-gateway.yaml \
+#     --backend-auth-service-account=bodega-gw-invoker@mirror-250005.iam.gserviceaccount.com
+#
+# Notes:
+#  - x-google-backend.address is the Cloud Run URL; the path is appended to it
+#    (default APPEND_PATH_TO_ADDRESS), so /stores here -> <run.app>/stores.
+#  - `security: [api_key: []]` at the top level applies the key requirement to
+#    EVERY path below, including /health and /submissions (you asked for all).
+#  - Optional query filters on /stores (has_snap, etc.) don't need to be declared
+#    here; undeclared query params are passed straight through to the backend.
+swagger: "2.0"
+info:
+  title: bodega-api-gw
+  description: Front door for the bodega API (key-gated, backed by Cloud Run).
+  version: "1.0.0"
+schemes:
+  - https
+produces:
+  - application/json
+x-google-backend:
+  address: https://bodega-api-213688091030.us-east1.run.app
+securityDefinitions:
+  api_key:
+    type: apiKey
+    name: x-api-key      # the header the apps send
+    in: header
+security:
+  - api_key: []          # require the key on every operation below
+paths:
+  /health:
+    get:
+      operationId: health
+      responses:
+        "200":
+          description: service is up
+  /stores:
+    get:
+      operationId: listStores
+      parameters:
+        - in: query
+          name: bbox
+          type: string
+          required: true
+      responses:
+        "200":
+          description: light pins in the viewport
+  /stores/{license_number}:
+    get:
+      operationId: getStore
+      parameters:
+        - in: path
+          name: license_number
+          type: string
+          required: true
+      responses:
+        "200":
+          description: one full store record
+  /stores/{license_number}/products:
+    get:
+      operationId: getProducts
+      parameters:
+        - in: path
+          name: license_number
+          type: string
+          required: true
+      responses:
+        "200":
+          description: products + category facets for one store
+  /submissions:
+    post:
+      operationId: createSubmission
+      consumes:
+        - multipart/form-data
+      responses:
+        "201":
+          description: submission stored
