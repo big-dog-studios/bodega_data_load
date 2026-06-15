@@ -17,11 +17,12 @@ the row. Fine for a handful of photos — total request is bounded by Cloud Run'
 Deployed as a Cloud Run Service; DB via the shared Connector engine in db.py.
 """
 import os
+import re
 import uuid
 from typing import List, Optional
 
 import sqlalchemy
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from db import engine
@@ -220,14 +221,21 @@ def get_products(license_number: str):
 INSERT = sqlalchemy.text("""
     INSERT INTO submissions (license_number, mode, name, address, geom,
                              prepared_food, lottery, alcohol, tobacco,
-                             atm, cat, hours, receipt, photos)
+                             atm, cat, hours, receipt, photos, submitted_ip)
     VALUES (:license_number, :mode, :name, :address,
             CASE WHEN CAST(:lat AS float8) IS NULL OR CAST(:lon AS float8) IS NULL THEN NULL
                  ELSE ST_SetSRID(ST_MakePoint(CAST(:lon AS float8), CAST(:lat AS float8)), 4326) END,
             :prepared_food, :lottery, :alcohol, :tobacco,
-            :atm, :cat, :hours, :receipt, :photos)
+            :atm, :cat, :hours, :receipt, :photos, :submitted_ip)
     RETURNING id, license_number, submitted_at;
 """)
+
+
+# A `report` license_number is free client input that becomes a GCS object prefix
+# (storage.py) and a DB key — validate its shape to keep both clean. Spine keys are
+# short alphanumeric; minted `new` keys are uuid hex. Reject anything with path
+# separators / out-of-charset chars (e.g. "../.." bucket-prefix steering).
+_LICENSE_RE = re.compile(r"[A-Za-z0-9-]{1,64}")
 
 
 def _yn(v: Optional[str]) -> Optional[bool]:
@@ -238,8 +246,22 @@ def _yn(v: Optional[str]) -> Optional[bool]:
     return True if s in ("yes", "y", "true") else False if s in ("no", "n", "false") else None
 
 
+def _client_ip(request: Request) -> Optional[str]:
+    """Best-effort client IP. Behind Cloud Run the real caller is the first hop of
+    X-Forwarded-For (request.client.host is Google's front-end proxy). SPOOFABLE —
+    the caller can prepend a fake XFF — so use it for dedup/abuse triage only, never
+    for auth or access decisions."""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip() or None
+    return request.client.host if request.client else None
+
+
 @app.post("/submissions", status_code=201)
 def create_submission(
+    # `request` (no default) must precede the Form(...) params. Used only to read the
+    # client IP from headers — it carries no body part of its own.
+    request: Request,
     # The survey is sent as multipart/form-data: scalar answers as form fields,
     # photos as file parts in the same request. FastAPI maps each part by name.
     mode: str = Form(..., description='"new" (bodega not in the spine) or "report" (existing license_number)'),
@@ -270,6 +292,10 @@ def create_submission(
         license_number = uuid.uuid4().hex  # minted key; no spine row exists yet
     elif not license_number:
         raise HTTPException(400, "license_number is required when mode='report'")
+    elif not _LICENSE_RE.fullmatch(license_number):
+        # Bound out of SQL anyway, but it also forms a GCS object prefix — reject
+        # path separators / odd chars before it touches storage.
+        raise HTTPException(400, "license_number is malformed")
 
     receipt_path = upload_file(license_number, "receipt", receipt) if receipt else None
     photo_paths = [upload_file(license_number, "photo", p) for p in photos]
@@ -290,6 +316,7 @@ def create_submission(
         "hours": hours,
         "receipt": receipt_path,
         "photos": photo_paths,
+        "submitted_ip": _client_ip(request),
     }
     with engine.begin() as cx:
         row = cx.execute(INSERT, params).mappings().first()

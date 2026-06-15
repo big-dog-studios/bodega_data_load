@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS submissions (
   hours           text,
   receipt         text,                 -- GCS object path, or NULL — bytes live in the bucket
   photos          text[] NOT NULL DEFAULT '{}',  -- GCS object paths
+  submitted_ip    text,                 -- best-effort client IP (X-Forwarded-For first hop);
+                                        -- SPOOFABLE — soft signal for dedup/abuse triage, never auth
   submitted_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS submissions_license_ix ON submissions (license_number);
@@ -100,6 +102,7 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS mode    text NOT NULL DEFAULT '
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS name    text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS address text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS geom    geometry(Point, 4326);
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS submitted_ip text;
 DO $$ BEGIN
   ALTER TABLE submissions ADD CONSTRAINT submissions_mode_chk CHECK (mode IN ('new','report'));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
