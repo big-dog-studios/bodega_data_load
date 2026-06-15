@@ -69,7 +69,15 @@ CREATE TABLE IF NOT EXISTS submissions (
                                         -- food-stores/sla loaders DELETE & re-add
                                         -- store rows on refresh, which would cascade
                                         -- away survey data. Also lets a surveyor log
-                                        -- a bodega not yet in the spine.
+                                        -- a bodega not yet in the spine. For mode='new'
+                                        -- this is a minted uuid (no spine row exists yet).
+  mode            text NOT NULL DEFAULT 'report' CHECK (mode IN ('new','report')),
+                                        -- 'new' = bodega not in the spine (license_number
+                                        -- is a minted uuid); 'report' = survey against an
+                                        -- existing spine store by its real license_number.
+  name            text,                 -- surveyor-provided store name (esp. mode='new')
+  address         text,                 -- surveyor-provided free-text address
+  geom            geometry(Point, 4326),-- from client lat/lon (NULL if not supplied)
   -- The four survey answers, one typed column each (yes->true, no->false, omitted
   -- ->NULL). Named to mirror the spine's flags so a surveyor's answer diffs
   -- directly against the government signal (e.g. prepared_food vs stores.has_prepared_food).
@@ -85,3 +93,14 @@ CREATE TABLE IF NOT EXISTS submissions (
   submitted_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS submissions_license_ix ON submissions (license_number);
+
+-- Migration for DBs created before mode/name/address/geom existed (CREATE TABLE
+-- IF NOT EXISTS above is a no-op on them). All idempotent.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS mode    text NOT NULL DEFAULT 'report';
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS name    text;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS address text;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS geom    geometry(Point, 4326);
+DO $$ BEGIN
+  ALTER TABLE submissions ADD CONSTRAINT submissions_mode_chk CHECK (mode IN ('new','report'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS submissions_geom_gix ON submissions USING gist (geom);

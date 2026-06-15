@@ -19,17 +19,29 @@ parts, plus the photo files as file parts. The service streams each file to GCS
 and stores only the object path on the row. No video, so the whole submission sits
 well under Cloud Run's 32 MB request cap.
 
-Form fields (all optional except `license_number`):
+Form fields (all optional except `mode`):
 
 | field | type | notes |
 |---|---|---|
-| `license_number` | text | required |
+| `mode` | text | **required** — `"new"` or `"report"` |
+| `license_number` | text | required when `mode="report"`; ignored & minted (uuid) when `mode="new"` |
+| `name` | text | surveyor-provided store name (esp. for `mode="new"`) |
+| `address` | text | free-text address |
+| `lat` / `lon` | float | client-supplied; `geom` POINT built only when **both** are present |
 | `prepared_food` / `lottery` / `alcohol` / `tobacco` | text | `"yes"`/`"no"` → bool |
+| `atm` / `cat` | text | `"yes"`/`"no"` → bool |
 | `hours` | text | free text |
 | `receipt` | file | one receipt photo |
 | `photos` | file (repeatable) | zero or more store photos |
 
-The four answer fields are coerced to typed boolean columns on insert (yes→true,
+`mode` distinguishes a survey of an existing spine store (`report`, keyed by its real
+`license_number`) from a brand-new bodega not yet in the spine (`new`, where the server
+mints a uuid `license_number`). Either way the survey lands **only** in `submissions` —
+we never write the `stores` spine. `lat`/`lon` become `geom` via
+`ST_SetSRID(ST_MakePoint(lon,lat),4326)` (the codebase's geom pattern); the response
+echoes `license_number` so the client can capture the minted uuid.
+
+The answer fields are coerced to typed boolean columns on insert (yes→true,
 no→false, omitted→NULL) — named to mirror the spine's `has_*` flags so surveyor
 answers diff directly against the government signal. Photo files become GCS object
 paths in `receipt` (text) and `photos` (text[]); the bytes live in the bucket.

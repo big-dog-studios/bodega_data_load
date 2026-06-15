@@ -6,6 +6,8 @@ Read (see api/CLAUDE.md):
 
 Write (field surveys -> `submissions`):
   POST /submissions  (multipart/form-data)  -> save one survey + its photos.
+    mode='report' surveys an existing store by license_number; mode='new' logs a
+    bodega not yet in the spine (mints a uuid license_number, geom from client lat/lon).
 
 One call: the client sends the answer fields plus photo files as multipart; the
 service streams each file to GCS (storage.py) and stores only the object path on
@@ -14,6 +16,7 @@ the row. Fine for a handful of photos — total request is bounded by Cloud Run'
 
 Deployed as a Cloud Run Service; DB via the shared Connector engine in db.py.
 """
+import uuid
 from typing import List, Optional
 
 import sqlalchemy
@@ -201,11 +204,15 @@ def get_products(license_number: str):
 # ---------------------------------------------------------------------------
 
 INSERT = sqlalchemy.text("""
-    INSERT INTO submissions (license_number, prepared_food, lottery, alcohol, tobacco,
+    INSERT INTO submissions (license_number, mode, name, address, geom,
+                             prepared_food, lottery, alcohol, tobacco,
                              atm, cat, hours, receipt, photos)
-    VALUES (:license_number, :prepared_food, :lottery, :alcohol, :tobacco,
+    VALUES (:license_number, :mode, :name, :address,
+            CASE WHEN :lat IS NULL OR :lon IS NULL THEN NULL
+                 ELSE ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) END,
+            :prepared_food, :lottery, :alcohol, :tobacco,
             :atm, :cat, :hours, :receipt, :photos)
-    RETURNING id, submitted_at;
+    RETURNING id, license_number, submitted_at;
 """)
 
 
@@ -221,7 +228,12 @@ def _yn(v: Optional[str]) -> Optional[bool]:
 def create_submission(
     # The survey is sent as multipart/form-data: scalar answers as form fields,
     # photos as file parts in the same request. FastAPI maps each part by name.
-    license_number: str = Form(...),
+    mode: str = Form(..., description='"new" (bodega not in the spine) or "report" (existing license_number)'),
+    license_number: Optional[str] = Form(None, description="required when mode='report'; ignored & minted (uuid) when mode='new'"),
+    name: Optional[str] = Form(None),     # surveyor-provided store name
+    address: Optional[str] = Form(None),  # surveyor-provided free-text address
+    lat: Optional[float] = Form(None),    # client-supplied; geom built only if lat AND lon present
+    lon: Optional[float] = Form(None),
     prepared_food: Optional[str] = Form(None),  # "yes"/"no" — coerced to bool below
     lottery: Optional[str] = Form(None),
     alcohol: Optional[str] = Form(None),
@@ -232,12 +244,29 @@ def create_submission(
     receipt: Optional[UploadFile] = File(None),  # one receipt photo, optional
     photos: List[UploadFile] = File(default=[]),  # zero or more store photos
 ):
-    """Persist one survey. Photo files stream to GCS; the row stores their paths."""
+    """Persist one survey. Photo files stream to GCS; the row stores their paths.
+
+    mode='new' mints a uuid license_number for a bodega not yet in the spine (so its
+    photos/answers get a stable key); mode='report' surveys an existing store by its
+    real license_number. We don't touch `stores` — surveys live in `submissions` only.
+    """
+    if mode not in ("new", "report"):
+        raise HTTPException(400, "mode must be 'new' or 'report'")
+    if mode == "new":
+        license_number = uuid.uuid4().hex  # minted key; no spine row exists yet
+    elif not license_number:
+        raise HTTPException(400, "license_number is required when mode='report'")
+
     receipt_path = upload_file(license_number, "receipt", receipt) if receipt else None
     photo_paths = [upload_file(license_number, "photo", p) for p in photos]
 
     params = {
         "license_number": license_number,
+        "mode": mode,
+        "name": name,
+        "address": address,
+        "lat": lat,
+        "lon": lon,
         "prepared_food": _yn(prepared_food),
         "lottery": _yn(lottery),
         "alcohol": _yn(alcohol),
@@ -250,4 +279,9 @@ def create_submission(
     }
     with engine.begin() as cx:
         row = cx.execute(INSERT, params).mappings().first()
-    return {"id": str(row["id"]), "submitted_at": row["submitted_at"].isoformat()}
+    return {
+        "id": str(row["id"]),
+        "license_number": row["license_number"],  # echo the minted uuid for mode='new'
+        "mode": mode,
+        "submitted_at": row["submitted_at"].isoformat(),
+    }
