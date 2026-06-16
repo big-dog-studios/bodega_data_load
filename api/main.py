@@ -220,12 +220,12 @@ def get_products(license_number: str):
 
 INSERT = sqlalchemy.text("""
     INSERT INTO submissions (license_number, mode, name, address, geom,
-                             prepared_food, lottery, alcohol, tobacco,
+                             prepared_food, lottery, alcohol, tobacco, snap,
                              atm, cat, hours, receipt, photos, submitted_ip)
     VALUES (:license_number, :mode, :name, :address,
             CASE WHEN CAST(:lat AS float8) IS NULL OR CAST(:lon AS float8) IS NULL THEN NULL
                  ELSE ST_SetSRID(ST_MakePoint(CAST(:lon AS float8), CAST(:lat AS float8)), 4326) END,
-            :prepared_food, :lottery, :alcohol, :tobacco,
+            :prepared_food, :lottery, :alcohol, :tobacco, :snap,
             :atm, :cat, :hours, :receipt, :photos, :submitted_ip)
     RETURNING id, license_number, submitted_at;
 """)
@@ -274,6 +274,7 @@ def create_submission(
     lottery: Optional[str] = Form(None),
     alcohol: Optional[str] = Form(None),
     tobacco: Optional[str] = Form(None),
+    snap: Optional[str] = Form(None),  # accepts SNAP/EBT — "yes"/"no" — coerced to bool below
     atm: Optional[str] = Form(None),  # "yes"/"no" — coerced to bool below
     cat: Optional[str] = Form(None),  # bodega cat present?
     hours: Optional[str] = Form(None),
@@ -311,6 +312,7 @@ def create_submission(
         "lottery": _yn(lottery),
         "alcohol": _yn(alcohol),
         "tobacco": _yn(tobacco),
+        "snap": _yn(snap),
         "atm": _yn(atm),
         "cat": _yn(cat),
         "hours": hours,

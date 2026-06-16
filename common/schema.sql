@@ -78,13 +78,14 @@ CREATE TABLE IF NOT EXISTS submissions (
   name            text,                 -- surveyor-provided store name (esp. mode='new')
   address         text,                 -- surveyor-provided free-text address
   geom            geometry(Point, 4326),-- from client lat/lon (NULL if not supplied)
-  -- The four survey answers, one typed column each (yes->true, no->false, omitted
+  -- The five survey answers, one typed column each (yes->true, no->false, omitted
   -- ->NULL). Named to mirror the spine's flags so a surveyor's answer diffs
   -- directly against the government signal (e.g. prepared_food vs stores.has_prepared_food).
   prepared_food   boolean,
   lottery         boolean,
   alcohol         boolean,
   tobacco         boolean,
+  snap            boolean,              -- accepts SNAP/EBT (vs stores.has_snap)
   atm             boolean,              -- ATM on premises (survey-only; no government feed)
   cat             boolean,              -- bodega cat present (survey-only)
   hours           text,
@@ -103,6 +104,7 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS name    text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS address text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS geom    geometry(Point, 4326);
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS submitted_ip text;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS snap         boolean;
 DO $$ BEGIN
   ALTER TABLE submissions ADD CONSTRAINT submissions_mode_chk CHECK (mode IN ('new','report'));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
