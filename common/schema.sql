@@ -76,7 +76,12 @@ CREATE TABLE IF NOT EXISTS submissions (
                                         -- is a minted uuid); 'report' = survey against an
                                         -- existing spine store by its real license_number.
   name            text,                 -- surveyor-provided store name (esp. mode='new')
-  address         text,                 -- surveyor-provided free-text address
+  address         text,                 -- DEPRECATED: legacy free-text address; superseded by
+                                        -- house/street/city/zip below. Kept for old rows; not written.
+  house           text,                 -- surveyor-provided address parts, mirroring the spine
+  street          text,
+  city            text,
+  zip             text,
   geom            geometry(Point, 4326),-- from client lat/lon (NULL if not supplied)
   -- The five survey answers, one typed column each (yes->true, no->false, omitted
   -- ->NULL). Named to mirror the spine's flags so a surveyor's answer diffs
@@ -105,6 +110,10 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS address text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS geom    geometry(Point, 4326);
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS submitted_ip text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS snap         boolean;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS house        text;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS street       text;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS city         text;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS zip          text;
 DO $$ BEGIN
   ALTER TABLE submissions ADD CONSTRAINT submissions_mode_chk CHECK (mode IN ('new','report'));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;

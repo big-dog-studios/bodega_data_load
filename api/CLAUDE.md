@@ -26,7 +26,7 @@ Form fields (all optional except `mode`):
 | `mode` | text | **required** — `"new"` or `"report"` |
 | `license_number` | text | required when `mode="report"`; ignored & minted (uuid) when `mode="new"` |
 | `name` | text | surveyor-provided store name (esp. for `mode="new"`) |
-| `address` | text | free-text address |
+| `house` / `street` / `city` / `zip` | text | address parts (mirror the spine; replaced the old free-text `address`) |
 | `lat` / `lon` | float | client-supplied; `geom` POINT built only when **both** are present |
 | `prepared_food` / `lottery` / `alcohol` / `tobacco` | text | `"yes"`/`"no"` → bool |
 | `atm` / `cat` | text | `"yes"`/`"no"` → bool |

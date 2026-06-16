@@ -219,10 +219,10 @@ def get_products(license_number: str):
 # ---------------------------------------------------------------------------
 
 INSERT = sqlalchemy.text("""
-    INSERT INTO submissions (license_number, mode, name, address, geom,
+    INSERT INTO submissions (license_number, mode, name, house, street, city, zip, geom,
                              prepared_food, lottery, alcohol, tobacco, snap,
                              atm, cat, hours, receipt, photos, submitted_ip)
-    VALUES (:license_number, :mode, :name, :address,
+    VALUES (:license_number, :mode, :name, :house, :street, :city, :zip,
             CASE WHEN CAST(:lat AS float8) IS NULL OR CAST(:lon AS float8) IS NULL THEN NULL
                  ELSE ST_SetSRID(ST_MakePoint(CAST(:lon AS float8), CAST(:lat AS float8)), 4326) END,
             :prepared_food, :lottery, :alcohol, :tobacco, :snap,
@@ -267,7 +267,10 @@ def create_submission(
     mode: str = Form(..., description='"new" (bodega not in the spine) or "report" (existing license_number)'),
     license_number: Optional[str] = Form(None, description="required when mode='report'; ignored & minted (uuid) when mode='new'"),
     name: Optional[str] = Form(None),     # surveyor-provided store name
-    address: Optional[str] = Form(None),  # surveyor-provided free-text address
+    house: Optional[str] = Form(None),    # surveyor-provided address parts (mirror the spine)
+    street: Optional[str] = Form(None),
+    city: Optional[str] = Form(None),
+    zip: Optional[str] = Form(None),
     lat: Optional[float] = Form(None),    # client-supplied; geom built only if lat AND lon present
     lon: Optional[float] = Form(None),
     prepared_food: Optional[str] = Form(None),  # "yes"/"no" — coerced to bool below
@@ -305,7 +308,10 @@ def create_submission(
         "license_number": license_number,
         "mode": mode,
         "name": name,
-        "address": address,
+        "house": house,
+        "street": street,
+        "city": city,
+        "zip": zip,
         "lat": lat,
         "lon": lon,
         "prepared_food": _yn(prepared_food),
