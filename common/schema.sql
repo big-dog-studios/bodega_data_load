@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS submissions (
                                         -- away survey data. Also lets a surveyor log
                                         -- a bodega not yet in the spine. For mode='new'
                                         -- this is a minted uuid (no spine row exists yet).
-  mode            text NOT NULL DEFAULT 'report' CHECK (mode IN ('new','report')),
+  mode            text NOT NULL DEFAULT 'report' CHECK (mode IN ('new','report','delete')),
                                         -- 'new' = bodega not in the spine (license_number
                                         -- is a minted uuid); 'report' = survey against an
                                         -- existing spine store by its real license_number.
@@ -114,7 +114,11 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS house        text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS street       text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS city         text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS zip          text;
-DO $$ BEGIN
-  ALTER TABLE submissions ADD CONSTRAINT submissions_mode_chk CHECK (mode IN ('new','report'));
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+-- Drop-and-recreate so the allowed-values list actually updates on live DBs (a plain
+-- ADD CONSTRAINT no-ops when one already exists, leaving the old new/report-only check).
+-- Two possible names: submissions_mode_chk (this migration) and submissions_mode_check
+-- (the inline CHECK Postgres auto-names on a fresh CREATE TABLE).
+ALTER TABLE submissions DROP CONSTRAINT IF EXISTS submissions_mode_chk;
+ALTER TABLE submissions DROP CONSTRAINT IF EXISTS submissions_mode_check;
+ALTER TABLE submissions ADD CONSTRAINT submissions_mode_chk CHECK (mode IN ('new','report','delete'));
 CREATE INDEX IF NOT EXISTS submissions_geom_gix ON submissions USING gist (geom);

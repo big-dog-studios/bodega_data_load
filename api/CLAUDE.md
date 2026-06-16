@@ -23,12 +23,12 @@ Form fields (all optional except `mode`):
 
 | field | type | notes |
 |---|---|---|
-| `mode` | text | **required** — `"new"` or `"report"` |
-| `license_number` | text | required when `mode="report"`; ignored & minted (uuid) when `mode="new"` |
+| `mode` | text | **required** — `"new"`, `"report"`, or `"delete"` |
+| `license_number` | text | required when `mode="report"` or `"delete"`; ignored & minted (uuid) when `mode="new"` |
 | `name` | text | surveyor-provided store name (esp. for `mode="new"`) |
 | `house` / `street` / `city` / `zip` | text | address parts (mirror the spine; replaced the old free-text `address`) |
 | `lat` / `lon` | float | client-supplied; `geom` POINT built only when **both** are present |
-| `prepared_food` / `lottery` / `alcohol` / `tobacco` | text | `"yes"`/`"no"` → bool |
+| `prepared_food` / `lottery` / `alcohol` / `tobacco` / `snap` | text | `"yes"`/`"no"` → bool |
 | `atm` / `cat` | text | `"yes"`/`"no"` → bool |
 | `hours` | text | free text |
 | `receipt` | file | one receipt photo |
@@ -36,8 +36,10 @@ Form fields (all optional except `mode`):
 
 `mode` distinguishes a survey of an existing spine store (`report`, keyed by its real
 `license_number`) from a brand-new bodega not yet in the spine (`new`, where the server
-mints a uuid `license_number`). Either way the survey lands **only** in `submissions` —
-we never write the `stores` spine. `lat`/`lon` become `geom` via
+mints a uuid `license_number`) from a closure report (`delete`, keyed by the existing
+`license_number`, flagging the store as gone). All three land **only** in `submissions` —
+we never write the `stores` spine, so `delete` is an advisory flag for downstream review,
+not an actual spine deletion. `lat`/`lon` become `geom` via
 `ST_SetSRID(ST_MakePoint(lon,lat),4326)` (the codebase's geom pattern); the response
 echoes `license_number` so the client can capture the minted uuid.
 

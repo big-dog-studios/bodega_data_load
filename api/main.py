@@ -7,7 +7,8 @@ Read (see api/CLAUDE.md):
 Write (field surveys -> `submissions`):
   POST /submissions  (multipart/form-data)  -> save one survey + its photos.
     mode='report' surveys an existing store by license_number; mode='new' logs a
-    bodega not yet in the spine (mints a uuid license_number, geom from client lat/lon).
+    bodega not yet in the spine (mints a uuid license_number, geom from client lat/lon);
+    mode='delete' flags an existing store as gone (logged, never touches the spine).
 
 One call: the client sends the answer fields plus photo files as multipart; the
 service streams each file to GCS (storage.py) and stores only the object path on
@@ -264,8 +265,8 @@ def create_submission(
     request: Request,
     # The survey is sent as multipart/form-data: scalar answers as form fields,
     # photos as file parts in the same request. FastAPI maps each part by name.
-    mode: str = Form(..., description='"new" (bodega not in the spine) or "report" (existing license_number)'),
-    license_number: Optional[str] = Form(None, description="required when mode='report'; ignored & minted (uuid) when mode='new'"),
+    mode: str = Form(..., description='"new" (bodega not in the spine), "report" (existing license_number), or "delete" (flag existing store as gone)'),
+    license_number: Optional[str] = Form(None, description="required when mode='report' or 'delete'; ignored & minted (uuid) when mode='new'"),
     name: Optional[str] = Form(None),     # surveyor-provided store name
     house: Optional[str] = Form(None),    # surveyor-provided address parts (mirror the spine)
     street: Optional[str] = Form(None),
@@ -288,14 +289,15 @@ def create_submission(
 
     mode='new' mints a uuid license_number for a bodega not yet in the spine (so its
     photos/answers get a stable key); mode='report' surveys an existing store by its
-    real license_number. We don't touch `stores` — surveys live in `submissions` only.
+    real license_number; mode='delete' flags an existing store as gone (logged like any
+    other survey — we don't touch `stores`). Surveys live in `submissions` only.
     """
-    if mode not in ("new", "report"):
-        raise HTTPException(400, "mode must be 'new' or 'report'")
+    if mode not in ("new", "report", "delete"):
+        raise HTTPException(400, "mode must be 'new', 'report', or 'delete'")
     if mode == "new":
         license_number = uuid.uuid4().hex  # minted key; no spine row exists yet
     elif not license_number:
-        raise HTTPException(400, "license_number is required when mode='report'")
+        raise HTTPException(400, f"license_number is required when mode='{mode}'")
     elif not _LICENSE_RE.fullmatch(license_number):
         # Bound out of SQL anyway, but it also forms a GCS object prefix — reject
         # path separators / odd chars before it touches storage.
