@@ -86,6 +86,12 @@ paths:
       operationId: scanImage
       consumes:
         - multipart/form-data
+      # Scan runs two Claude vision calls + a Vertex embed + DB writes, which blows
+      # past the gateway's 15s default backend deadline (-> 504 upstream timeout).
+      # Override the deadline for just this slow route (other routes stay fast).
+      x-google-backend:
+        address: https://bodega-api-213688091030.us-east1.run.app
+        deadline: 300.0
       responses:
         "201":
           description: image classified into products (applied + review lists)
