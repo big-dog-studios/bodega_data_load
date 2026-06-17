@@ -41,7 +41,9 @@ For a RECEIPT, return one object per purchasable line item (skip totals, tax, ch
 For a SHELF photo, scan methodically across all the shelves so you don't miss products,
 but apply these limits:
 - One object per DISTINCT PRODUCT, not per facing. Several identical units of the same
-  product = ONE entry. Different brands/flavors = different products.
+  product = ONE entry. Different brands/flavors = different products. The SAME product in
+  different packaging/size (bottle vs can vs case/12-pack) is still ONE entry — pick the
+  primary unit and do not append packaging words like "Bottles", "(case)", or "(12-pack)".
 - Only include a product you can actually IDENTIFY (a real brand/product name). If all
   you can tell is a generic category (e.g. "boxed pasta", "a cereal box"), OMIT it —
   never emit a placeholder or a description as a product.

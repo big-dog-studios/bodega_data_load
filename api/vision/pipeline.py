@@ -130,6 +130,7 @@ def process(image_bytes, license_number, dsn, media_type="image/jpeg"):
     sid_map = db.subtype_id_map(dsn)
     source = "receipt" if kind == "receipt" else "shelf_photo"
 
+    handled = set()  # product_ids already acted on this scan -> collapse model dupes
     with db.connect(dsn) as conn:
         for it in items:
             name = (it.get("display_name") or "").strip()
@@ -148,22 +149,32 @@ def process(image_bytes, license_number, dsn, media_type="image/jpeg"):
 
             status, pid = stage3_dedup(conn, license_number, subtype_id, name)
 
-            if status == "match":
-                if price is not None:
-                    db.update_price(conn, pid, price, raw, source)
-                    res.applied.append({"action": "price_update", "product_id": pid,
-                                        "name": name, "subtype": code})
-                else:
-                    res.applied.append({"action": "exists_no_change", "product_id": pid,
-                                        "name": name, "subtype": code})
-            elif status == "ambiguous":
+            if status == "ambiguous":
                 res.review.append({"name": name, "reason": "ambiguous dedup match",
                                    "maybe_product_id": pid, "code": code})
-            else:  # new
+                continue
+
+            if status == "new":
                 emb = embed.embed_one(name)
                 pid = db.insert_product(conn, license_number, subtype_id, name, price, raw,
                                         source, source_category=source, embedding=emb)
+
+            # Collapse within-scan duplicates: the model often lists the same product
+            # twice (packaging/size variants), which dedup resolves to one product_id.
+            # Act on each product_id once per scan so the response has no repeats.
+            if pid in handled:
+                continue
+            handled.add(pid)
+
+            if status == "new":
                 res.applied.append({"action": "insert", "product_id": pid,
+                                    "name": name, "subtype": code})
+            elif price is not None:
+                db.update_price(conn, pid, price, raw, source)
+                res.applied.append({"action": "price_update", "product_id": pid,
+                                    "name": name, "subtype": code})
+            else:
+                res.applied.append({"action": "exists_no_change", "product_id": pid,
                                     "name": name, "subtype": code})
         conn.commit()
     return res
