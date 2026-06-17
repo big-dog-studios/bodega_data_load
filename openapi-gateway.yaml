@@ -26,6 +26,11 @@ produces:
   - application/json
 x-google-backend:
   address: https://bodega-api-213688091030.us-east1.run.app
+  # Global backend deadline (seconds). Default is 15s, which /products/scan blows
+  # past (two Claude vision calls + Vertex embed + DB) -> 504. Set it here on the
+  # GLOBAL backend rather than per-operation: an operation-level x-google-backend
+  # resets path translation and breaks /products/scan routing (-> {"detail":"Not Found"}).
+  deadline: 300.0
 securityDefinitions:
   api_key:
     type: apiKey
@@ -86,12 +91,6 @@ paths:
       operationId: scanImage
       consumes:
         - multipart/form-data
-      # Scan runs two Claude vision calls + a Vertex embed + DB writes, which blows
-      # past the gateway's 15s default backend deadline (-> 504 upstream timeout).
-      # Override the deadline for just this slow route (other routes stay fast).
-      x-google-backend:
-        address: https://bodega-api-213688091030.us-east1.run.app
-        deadline: 300.0
       responses:
         "201":
           description: image classified into products (applied + review lists)
