@@ -42,7 +42,10 @@ def _image_block(image_bytes, media_type):
 
 
 def _ask_json(system, content_blocks, max_tokens=2000, model=MODEL):
+    # temperature=0: deterministic, faithful reads — minimizes the model inventing
+    # plausible-but-fake brand names it can't actually read off the packaging.
     msg = client.messages.create(model=model, max_tokens=max_tokens, system=system,
+                                 temperature=0,
                                  messages=[{"role": "user", "content": content_blocks}])
     text = "".join(b.text for b in msg.content if b.type == "text").strip()
     if text.startswith("```"):

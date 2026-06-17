@@ -24,6 +24,9 @@ Rules:
   abbreviations expanded (GV SHRD CHDR -> "Great Value Shredded Cheddar"). It is a clean
   product name, NOT a description. NEVER add location, visibility, or count notes
   ("(far right)", "(partially visible)", "(second bottle)", "(x3)") — those are not the name.
+- NEVER invent or guess a brand/product name. Only state a brand you can actually read on
+  the packaging or recognize with high confidence from its logo/design. If you cannot
+  identify the real product, OMIT it — do not output a phonetic guess or a made-up brand.
 - subtype_code: the single best fit from the list. If you can read the item but not its fine type,
   use the matching *_unspecified code. Never guess a code that isn't listed.
 - method: "text" if read from printed text, "visual_id" if recognized by logo/packaging only,
