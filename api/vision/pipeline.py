@@ -100,7 +100,10 @@ def stage3_dedup(conn, license_number, subtype_id, display_name):
 
     # gray band -> let the LLM judge against the few nearest
     near = [c for c, _ in scored[:3]]
-    out = _ask_json(prompts.dedup_match(display_name, near), [], max_tokens=200)
+    # The prompt rides as `system`; the user content must be non-empty (Anthropic
+    # rejects an empty user message), so send a minimal text block to trigger the answer.
+    out = _ask_json(prompts.dedup_match(display_name, near),
+                    [{"type": "text", "text": "Return the JSON verdict now."}], max_tokens=200)
     mid, conf = out.get("match_id"), float(out.get("confidence", 0))
     if mid is None:
         return ("new", None)
