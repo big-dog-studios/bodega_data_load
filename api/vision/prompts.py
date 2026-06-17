@@ -20,7 +20,10 @@ subtype_code MUST be exactly one of these (never invent a code):
 {codes}
 
 Rules:
-- display_name: human-readable, expand abbreviations (GV SHRD CHDR -> "Great Value Shredded Cheddar").
+- display_name: the product's RETAIL NAME ONLY — brand + product (+ flavor/size if legible),
+  abbreviations expanded (GV SHRD CHDR -> "Great Value Shredded Cheddar"). It is a clean
+  product name, NOT a description. NEVER add location, visibility, or count notes
+  ("(far right)", "(partially visible)", "(second bottle)", "(x3)") — those are not the name.
 - subtype_code: the single best fit from the list. If you can read the item but not its fine type,
   use the matching *_unspecified code. Never guess a code that isn't listed.
 - method: "text" if read from printed text, "visual_id" if recognized by logo/packaging only,
@@ -35,13 +38,14 @@ For a RECEIPT, return one object per purchasable line item (skip totals, tax, ch
   "method": "text", "confidence": 0.0-1.0, "price_cents": <int or null>}]"""
     else:  # shelf
         return common + """
-For a SHELF photo, be EXHAUSTIVE: scan the image methodically shelf by shelf, top to
-bottom, left to right, and return one object for EVERY distinct product you can see —
-including items that are partially visible, behind others, stacked, or at the edges.
-Do not summarize, group, or skip; different brands/flavors are different products. A
-typical bodega shelf photo has many products (often 15-40); returning only a handful
-means you missed some — look again. If you can see a product but can't read its exact
-type, still include it with your best display_name and the matching *_unspecified code.
+For a SHELF photo, scan methodically across all the shelves so you don't miss products,
+but apply these limits:
+- One object per DISTINCT PRODUCT, not per facing. Several identical units of the same
+  product = ONE entry. Different brands/flavors = different products.
+- Only include a product you can actually IDENTIFY (a real brand/product name). If all
+  you can tell is a generic category (e.g. "boxed pasta", "a cereal box"), OMIT it —
+  never emit a placeholder or a description as a product.
+- Skip price tags, shelf labels, signage, and fixtures.
 [{"raw": "<label text or ''>", "display_name": "...", "subtype_code": "...",
   "method": "...", "confidence": 0.0-1.0, "price_cents": null}]"""
 
