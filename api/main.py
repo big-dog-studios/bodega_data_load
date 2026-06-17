@@ -10,6 +10,11 @@ Write (field surveys -> `submissions`):
     bodega not yet in the spine (mints a uuid license_number, geom from client lat/lon);
     mode='delete' flags an existing store as gone (logged, never touches the spine).
 
+Catalog (image -> `products`):
+  POST /products/scan  (multipart/form-data)  -> classify one receipt/shelf photo
+    into products for a license_number (vision.pipeline). Inserts new products /
+    updates known prices; punts ambiguous items to review.
+
 One call: the client sends the answer fields plus photo files as multipart; the
 service streams each file to GCS (storage.py) and stores only the object path on
 the row. Fine for a handful of photos — total request is bounded by Cloud Run's
@@ -335,4 +340,68 @@ def create_submission(
         "license_number": row["license_number"],  # echo the minted uuid for mode='new'
         "mode": mode,
         "submitted_at": row["submitted_at"].isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Catalog write path: an image (receipt / shelf photo) -> `products`
+# ---------------------------------------------------------------------------
+# vision.pipeline does the real work (gate the image, extract items with Claude
+# vision, dedup against the store's existing products, insert new / update price).
+# It manages its OWN psycopg3 + pgvector connections — pgvector needs psycopg3,
+# which the Cloud SQL Connector can't drive — so it gets a libpq DSN against the
+# Cloud SQL unix socket rather than the pg8000 `engine` the read path uses.
+# Deploy the service with `--add-cloudsql-instances=$INSTANCE` so /cloudsql/<inst>
+# is mounted; set DB_DSN to override for local dev (e.g. a TCP/localhost proxy).
+
+
+_STORE_EXISTS = sqlalchemy.text("SELECT 1 FROM public.stores WHERE license_number = :lid")
+
+
+def _vision_dsn() -> str:
+    dsn = os.environ.get("DB_DSN")
+    if dsn:
+        return dsn
+    return (f"host=/cloudsql/{os.environ['INSTANCE']} dbname={os.environ['DB_NAME']} "
+            f"user={os.environ['DB_USER']} password={os.environ['DB_PASS']}")
+
+
+@app.post("/products/scan", status_code=201)
+def scan_image(
+    license_number: str = Form(..., description="store to attach detected products to"),
+    image: UploadFile = File(..., description="a receipt or shelf photo (jpeg/png/webp/heic)"),
+):
+    """Classify one receipt/shelf photo into products for `license_number`.
+
+    Thin wrapper over vision.pipeline.process — the heavy lifting (image gate,
+    item extraction, semantic dedup vs the store's existing catalog, insert /
+    price-update) lives there. Returns what was applied and what was routed to
+    manual review. The pipeline is imported lazily so the read path doesn't carry
+    the vision deps / ANTHROPIC_API_KEY / Vertex creds unless this route is hit.
+
+    Unlike /submissions, `products.license_number` is a HARD FK to stores
+    (ON DELETE CASCADE), so the store must already exist in the spine — we check
+    here and 404 cleanly rather than letting the pipeline's INSERT raise a FK
+    violation as a 500.
+    """
+    if not _LICENSE_RE.fullmatch(license_number):
+        raise HTTPException(400, "license_number is malformed")
+    with engine.connect() as cx:
+        if cx.execute(_STORE_EXISTS, {"lid": license_number}).first() is None:
+            raise HTTPException(404, "unknown license_number (not in stores spine)")
+
+    from vision import pipeline  # lazy: pulls in anthropic + vertex at first use
+
+    image_bytes = image.file.read()
+    if not image_bytes:
+        raise HTTPException(400, "empty image")
+    media_type = image.content_type or "image/jpeg"
+
+    res = pipeline.process(image_bytes, license_number, _vision_dsn(), media_type)
+    return {
+        "license_number": license_number,
+        "kind": res.kind,                    # receipt | shelf | other
+        "rejected_reason": res.rejected_reason,  # set iff the image was gated out
+        "applied": res.applied,              # inserts / price updates that landed
+        "review": res.review,                # items punted to manual review
     }

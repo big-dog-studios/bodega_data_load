@@ -81,3 +81,11 @@ paths:
       responses:
         "201":
           description: submission stored
+  /products/scan:
+    post:
+      operationId: scanImage
+      consumes:
+        - multipart/form-data
+      responses:
+        "201":
+          description: image classified into products (applied + review lists)

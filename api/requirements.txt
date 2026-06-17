@@ -5,3 +5,10 @@ pg8000
 cloud-sql-python-connector
 google-cloud-storage
 python-multipart
+# vision catalog pipeline (POST /products/scan): Claude vision + Vertex embeddings,
+# psycopg3 + pgvector (the Connector can't drive psycopg3, so it uses a socket DSN).
+anthropic
+psycopg[binary]
+pgvector
+numpy
+google-cloud-aiplatform
