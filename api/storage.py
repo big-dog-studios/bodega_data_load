@@ -34,3 +34,22 @@ def upload_file(license_number: str, kind: str, file) -> str:
     blob = _bucket.blob(obj)
     blob.upload_from_file(file.file, content_type=file.content_type)
     return obj
+
+
+def download_image(path: str) -> tuple[bytes, str]:
+    """Fetch an image already in GCS by path; return (bytes, content_type).
+
+    `path` is either a full `gs://bucket/object` URI (any bucket the runtime SA can
+    read) or a bare object path inside the default GCS_BUCKET. reload() pulls the
+    stored content_type so the pipeline tags the vision call correctly (falls back
+    to image/jpeg if the object has none).
+    """
+    if path.startswith("gs://"):
+        bucket_name, _, obj = path[len("gs://"):].partition("/")
+        if not obj:
+            raise ValueError("gs:// URI is missing an object path")
+        blob = _client.bucket(bucket_name).blob(obj)
+    else:
+        blob = _bucket.blob(path)
+    blob.reload()  # populate metadata (content_type); raises NotFound if absent
+    return blob.download_as_bytes(), (blob.content_type or "image/jpeg")

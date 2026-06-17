@@ -369,9 +369,15 @@ def _vision_dsn() -> str:
 @app.post("/products/scan", status_code=201)
 def scan_image(
     license_number: str = Form(..., description="store to attach detected products to"),
-    image: UploadFile = File(..., description="a receipt or shelf photo (jpeg/png/webp/heic)"),
+    gcs_path: Optional[str] = Form(None, description="GCS object path or gs:// URI of an image already in a bucket (automated path)"),
+    image: Optional[UploadFile] = File(None, description="alternative: upload a receipt/shelf photo directly"),
 ):
-    """Classify one receipt/shelf photo into products for `license_number`.
+    """Classify one receipt/shelf image into products for `license_number`.
+
+    Two ways to supply the image — pass exactly one:
+      - `gcs_path` (automated): object path in GCS_BUCKET, or a full gs:// URI. The
+        service fetches the bytes server-side (storage.download_image).
+      - `image`: a direct multipart file upload.
 
     Thin wrapper over vision.pipeline.process — the heavy lifting (image gate,
     item extraction, semantic dedup vs the store's existing catalog, insert /
@@ -386,16 +392,25 @@ def scan_image(
     """
     if not _LICENSE_RE.fullmatch(license_number):
         raise HTTPException(400, "license_number is malformed")
+    if (gcs_path is None) == (image is None):
+        raise HTTPException(400, "provide exactly one of `gcs_path` or `image`")
     with engine.connect() as cx:
         if cx.execute(_STORE_EXISTS, {"lid": license_number}).first() is None:
             raise HTTPException(404, "unknown license_number (not in stores spine)")
 
     from vision import pipeline  # lazy: pulls in anthropic + vertex at first use
 
-    image_bytes = image.file.read()
+    if gcs_path:
+        from storage import download_image
+        try:
+            image_bytes, media_type = download_image(gcs_path)
+        except Exception:
+            raise HTTPException(404, f"image not found in GCS: {gcs_path}")
+    else:
+        image_bytes = image.file.read()
+        media_type = image.content_type or "image/jpeg"
     if not image_bytes:
         raise HTTPException(400, "empty image")
-    media_type = image.content_type or "image/jpeg"
 
     res = pipeline.process(image_bytes, license_number, _vision_dsn(), media_type)
     return {
