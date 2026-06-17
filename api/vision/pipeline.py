@@ -16,7 +16,8 @@ from anthropic import Anthropic
 
 from . import prompts, db, embed
 
-MODEL = "claude-haiku-4-5-20251001"   # verify current string in docs before deploy
+MODEL = "claude-haiku-4-5-20251001"   # cheap model: image gate + text dedup judge
+EXTRACT_MODEL = "claude-sonnet-4-6"   # stronger vision model for exhaustive item extraction
 CONF_MIN   = 0.55     # extraction confidence floor -> else review
 GATE_MIN   = 0.60     # image-type confidence floor -> else reject
 DEDUP_MIN  = 0.70     # LLM match confidence (gray band) to call it the same product
@@ -40,8 +41,8 @@ def _image_block(image_bytes, media_type):
             "data": base64.standard_b64encode(image_bytes).decode()}}
 
 
-def _ask_json(system, content_blocks, max_tokens=2000):
-    msg = client.messages.create(model=MODEL, max_tokens=max_tokens, system=system,
+def _ask_json(system, content_blocks, max_tokens=2000, model=MODEL):
+    msg = client.messages.create(model=model, max_tokens=max_tokens, system=system,
                                  messages=[{"role": "user", "content": content_blocks}])
     text = "".join(b.text for b in msg.content if b.type == "text").strip()
     if text.startswith("```"):
@@ -65,8 +66,11 @@ def stage0_gate(image_bytes, media_type):
 
 def stage1_extract(image_bytes, media_type, kind, dsn):
     system = prompts.extract_items(kind, db.allowed_codes(dsn))
-    items = _ask_json(system, [_image_block(image_bytes, media_type),
-                               {"type": "text", "text": f"This is a {kind}. Extract items."}])
+    items = _ask_json(system,
+                      [_image_block(image_bytes, media_type),
+                       {"type": "text", "text": f"This is a {kind}. List EVERY distinct "
+                        "product you can see — go shelf by shelf, left to right; do not skip or summarize."}],
+                      max_tokens=8000, model=EXTRACT_MODEL)
     return items if isinstance(items, list) else []
 
 

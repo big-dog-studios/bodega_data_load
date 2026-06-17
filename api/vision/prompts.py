@@ -35,7 +35,13 @@ For a RECEIPT, return one object per purchasable line item (skip totals, tax, ch
   "method": "text", "confidence": 0.0-1.0, "price_cents": <int or null>}]"""
     else:  # shelf
         return common + """
-For a SHELF photo, return one object per distinct product you can identify:
+For a SHELF photo, be EXHAUSTIVE: scan the image methodically shelf by shelf, top to
+bottom, left to right, and return one object for EVERY distinct product you can see —
+including items that are partially visible, behind others, stacked, or at the edges.
+Do not summarize, group, or skip; different brands/flavors are different products. A
+typical bodega shelf photo has many products (often 15-40); returning only a handful
+means you missed some — look again. If you can see a product but can't read its exact
+type, still include it with your best display_name and the matching *_unspecified code.
 [{"raw": "<label text or ''>", "display_name": "...", "subtype_code": "...",
   "method": "...", "confidence": 0.0-1.0, "price_cents": null}]"""
 
