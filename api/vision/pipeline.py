@@ -67,6 +67,14 @@ def stage0_gate(image_bytes, media_type):
     return out.get("kind", "other"), float(out.get("confidence", 0))
 
 
+def stage0_verify(image_bytes, media_type, claimed_kind):
+    """Targeted gate: the uploader claims `claimed_kind` — confirm ONLY that (yes/no),
+    never reclassify into the other type. Returns (matches_claim, confidence)."""
+    out = _ask_json(prompts.verify_kind(claimed_kind),
+                    [_image_block(image_bytes, media_type)], max_tokens=200)
+    return bool(out.get("match", False)), float(out.get("confidence", 0))
+
+
 def stage1_extract(image_bytes, media_type, kind, dsn):
     system = prompts.extract_items(kind, db.allowed_codes(dsn))
     items = _ask_json(system,
@@ -120,14 +128,25 @@ def stage3_dedup(conn, license_number, subtype_id, display_name):
 
 
 # ---------- orchestration ----------
-def process(image_bytes, license_number, dsn, media_type="image/jpeg"):
+def process(image_bytes, license_number, dsn, media_type="image/jpeg", kind=None):
+    """`kind` ('receipt'|'shelf') is the uploader's own classification, when known.
+    We don't trust it — we verify ONLY that claim (stage0_verify) and reject a mismatch
+    or garbage; we never re-bucket it as the other type. With no hint, fall back to the
+    open receipt/shelf/other gate (stage0_gate)."""
     res = Result()
 
-    kind, gconf = stage0_gate(image_bytes, media_type)
-    res.kind = kind
-    if kind == "other" or gconf < GATE_MIN:
-        res.rejected_reason = f"not a receipt/shelf (kind={kind}, conf={gconf:.2f})"
-        return res
+    if kind in ("receipt", "shelf"):
+        ok, gconf = stage0_verify(image_bytes, media_type, kind)
+        res.kind = kind
+        if not ok or gconf < GATE_MIN:
+            res.rejected_reason = f"does not look like a {kind} (conf={gconf:.2f})"
+            return res
+    else:
+        kind, gconf = stage0_gate(image_bytes, media_type)
+        res.kind = kind
+        if kind == "other" or gconf < GATE_MIN:
+            res.rejected_reason = f"not a receipt/shelf (kind={kind}, conf={gconf:.2f})"
+            return res
 
     items = stage1_extract(image_bytes, media_type, kind, dsn)
     sid_map = db.subtype_id_map(dsn)

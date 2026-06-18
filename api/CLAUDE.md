@@ -23,6 +23,14 @@ with Claude vision, dedups against the store's existing products, then inserts n
 products / updates known prices. Response echoes `kind` (receipt|shelf|other),
 `rejected_reason` (set iff gated out), and the `applied` / `review` item lists.
 
+Optional `kind` form field (`'receipt'` or `'shelf'`/`'product'`) carries the
+uploader's own classification. We **don't trust it** — when present, stage 0 runs a
+*targeted* check (`stage0_verify`) that confirms ONLY that one claim and rejects a
+mismatch or garbage, never re-bucketing into the other type (one check, never both) —
+which also skips the open `stage0_gate` classification call. Omit it and stage 0 falls
+back to the open receipt/shelf/other gate. (The submissions `image_queue.kind_hint` is
+exactly this value, for when a queue-drainer feeds scans automatically.)
+
 Unlike `/submissions`, `products.license_number` is a **hard FK** to `stores`
 (`ON DELETE CASCADE`), so the store must already exist in the spine. The handler
 checks via the read `engine` and returns **404** for an unknown license rather than

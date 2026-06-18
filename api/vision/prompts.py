@@ -11,6 +11,29 @@ Respond with ONLY a JSON object, no prose, no markdown:
 {"kind": "receipt|shelf|other", "confidence": 0.0-1.0, "reason": "short"}"""
 
 
+# Stage 0, targeted variant — the uploader already told us the type, so we confirm
+# ONLY that one claim instead of open-classifying. We do NOT trust the label (a
+# mismatch or garbage is rejected), but we also never silently re-bucket the image
+# into the other type. One check, never both.
+_KIND_DESC = {
+    "receipt": "a store/purchase receipt or itemized bill",
+    "shelf":   "a photo of store shelves, coolers, racks, or products for sale",
+}
+
+
+def verify_kind(claimed_kind: str) -> str:
+    desc = _KIND_DESC[claimed_kind]
+    return f"""You are validating an uploaded image for a store-products database.
+The uploader says this image is {desc}.
+Confirm ONLY whether that is true. Do NOT reclassify it as any other type.
+- match = true  only if the image really is {desc}.
+- match = false for anything else: the other type, a selfie, meme, screenshot,
+  document, landscape, or a blurry/unusable image.
+
+Respond with ONLY a JSON object, no prose, no markdown:
+{{"match": true|false, "confidence": 0.0-1.0, "reason": "short"}}"""
+
+
 def extract_items(kind: str, allowed_codes: list[str]) -> str:
     """Stage 1 prompt. Hands the model the closed subtype list so it can't free-form."""
     codes = ", ".join(allowed_codes)
