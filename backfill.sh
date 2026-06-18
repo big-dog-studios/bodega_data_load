@@ -15,7 +15,7 @@ gcloud run jobs deploy bodega-backfill \
   --source ./api \
   --region="$REGION" \
   --project="$PROJECT" \
-  --add-cloudsql-instances="$INSTANCE" \
+  --set-cloudsql-instances="$INSTANCE" \
   --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT},GOOGLE_CLOUD_REGION=us-central1" \
   --command python \
   --args="-m,vision.backfill_embeddings,${DSN}"
