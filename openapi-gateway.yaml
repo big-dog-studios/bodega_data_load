@@ -86,6 +86,18 @@ paths:
       responses:
         "201":
           description: submission stored
+  # Admin/cron trigger for the submissions processor. Gets the global x-api-key like
+  # every route here, but that key is shared with the public apps, so it is NOT enough
+  # to run a spine mutation: the backend ALSO requires the X-Process-Token header
+  # (matched against the PROCESS_TOKEN secret), which the gateway forwards untouched.
+  # The scheduler therefore sends BOTH headers. 300s deadline (the global backend
+  # deadline applies) covers a long pass over many pending rows.
+  /submissions/process:
+    post:
+      operationId: processSubmissions
+      responses:
+        "200":
+          description: one processing pass ran (per-mode still-pending counts)
   /products/scan:
     post:
       operationId: scanImage

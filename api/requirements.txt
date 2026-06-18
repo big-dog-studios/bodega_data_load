@@ -12,3 +12,6 @@ psycopg[binary]
 pgvector
 numpy
 google-cloud-aiplatform
+# submissions processor (POST /submissions/process): psycopg3 (shared with vision)
+# + requests for the optional Google Places new-store confirmation.
+requests

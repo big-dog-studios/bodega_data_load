@@ -12,6 +12,7 @@ here (no cross-folder import).
 | GET  | `/stores/{license_number}` | one full record |
 | GET  | `/stores/{license_number}/products` | catalog + category facets for one store |
 | POST | `/submissions` | save one field survey + its photos (multipart) |
+| POST | `/submissions/process` | run one corroboration-gated pass over pending submissions (admin/cron; token-gated) |
 | POST | `/products/scan` | classify one receipt/shelf photo into `products` (multipart) |
 
 ## The image catalog scan path (`POST /products/scan`)
@@ -42,6 +43,61 @@ vision deps / `ANTHROPIC_API_KEY` / Vertex creds unless this route is actually h
 `embedding_dedup vector(768)` column + `CREATE EXTENSION vector`) must be applied
 before first scan; run `python -m vision.backfill_embeddings "$DSN"` once to embed
 any pre-existing product names.
+
+## The submissions processor (`POST /submissions/process`)
+
+The **`submissions/` package** (vendored here like `vision/`) turns the rows that
+`POST /submissions` writes into spine changes — a single corroboration-gated pass,
+trust signal = **distinct IPs** (no photo/evidence shortcut):
+
+- **new** → in-DB dup (exact license, then fuzzy nearby name via `pg_trgm`) → mark
+  `duplicate`; else Google Places confirms a real store → `create_store`; else 2+
+  distinct IPs agree → `create_store` (provisional); else leave pending.
+- **report** → group attribute claims by `(license, field, value)`; apply at 2 IPs
+  (hours / boolean flags / alcohol) or 3 IPs (name / geom). `alcohol`→`alc_class=71`.
+- **delete** → 3 distinct IPs → `stores.hidden = true` (reversible; **never** hard-delete).
+
+Accepted `new`/`report` rows enqueue their photos into **`image_queue`** (receipt→
+`receipt`, photos→`shelf`; `UNIQUE(url)` dedupes) as the hand-off to the vision
+classifier. Knobs (radii, IP thresholds, name similarity) are constants at the top of
+`submissions/pipeline.py`.
+
+Like `vision/`, it runs on **psycopg3** and opens its own connections from the shared
+`_socket_dsn()` (the pg8000 read `engine` can't drive it), so `pipeline` is imported
+**lazily** inside the handler. Google Places (`submissions/places.py`) is **optional**:
+with `GOOGLE_MAPS_API_KEY` set it confirms new stores; unset, `find_store()` returns
+`None` and the pass falls back to IP corroboration — it never crashes for a missing key.
+
+**Mutates the spine — two-factor guarded, gateway-only.** The route is declared in
+`openapi-gateway.yaml`, so it's reached through the **gateway** (not the raw run.app
+URL) and carries the global `x-api-key` like every route. But that key is shared with
+the public apps, so it is **not sufficient on its own**: the backend also requires the
+`X-Process-Token` header (which the gateway forwards untouched) to match the
+`PROCESS_TOKEN` env secret — **fail-closed** (503) if `PROCESS_TOKEN` is unset, 403 on
+mismatch. So a caller sends **both** headers. Drive it from Cloud Scheduler against the
+**gateway URL** on a cadence, e.g.:
+
+```bash
+GW=$(gcloud api-gateway gateways describe bodega-gateway --location=us-east1 \
+       --format='value(defaultHostname)')
+gcloud scheduler jobs create http submissions-process \
+  --schedule="*/15 * * * *" --location=us-east1 \
+  --uri="https://$GW/submissions/process" \
+  --http-method=POST \
+  --headers="x-api-key=$API_KEY,X-Process-Token=$(gcloud secrets versions access latest --secret=submissions-process-token)"
+```
+
+(`$API_KEY` is the same gateway key the apps send.) After editing the spec, republish
+the gateway config with `bash gateway.sh`.
+
+The response echoes `still_pending` (a per-mode count of submissions left pending) so
+the scheduler/operator can watch the queue drain. Run it **after** the relevant write
+traffic; it's idempotent (a second pass over the same rows is a no-op once they clear).
+
+**DB prerequisite:** apply `common/submissions_pipeline_setup.sql` once (idempotent) —
+it adds `image_queue`, `submissions.status/resolution/processed_at`, `stores.hidden`,
+and the `pg_trgm` trigram indexes the fuzzy dedup needs. **Secret:** create
+`submissions-process-token` in Secret Manager (any high-entropy string).
 
 ## The survey write path (single multipart POST)
 

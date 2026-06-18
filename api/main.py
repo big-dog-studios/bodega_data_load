@@ -28,7 +28,7 @@ import uuid
 from typing import List, Optional
 
 import sqlalchemy
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from db import engine
@@ -358,7 +358,9 @@ def create_submission(
 _STORE_EXISTS = sqlalchemy.text("SELECT 1 FROM public.stores WHERE license_number = :lid")
 
 
-def _vision_dsn() -> str:
+def _socket_dsn() -> str:
+    """libpq DSN against the Cloud SQL unix socket, shared by the psycopg3 paths
+    (vision catalog scan + the submissions processor). DB_DSN overrides for local dev."""
     dsn = os.environ.get("DB_DSN")
     if dsn:
         return dsn
@@ -412,7 +414,7 @@ def scan_image(
     if not image_bytes:
         raise HTTPException(400, "empty image")
 
-    res = pipeline.process(image_bytes, license_number, _vision_dsn(), media_type)
+    res = pipeline.process(image_bytes, license_number, _socket_dsn(), media_type)
     return {
         "license_number": license_number,
         "kind": res.kind,                    # receipt | shelf | other
@@ -420,3 +422,49 @@ def scan_image(
         "applied": res.applied,              # inserts / price updates that landed
         "review": res.review,                # items punted to manual review
     }
+
+
+# ---------------------------------------------------------------------------
+# Submissions processor trigger: one corroboration-gated pass over `submissions`
+# ---------------------------------------------------------------------------
+# The `submissions/` package (vendored here like `vision/`) does the real work:
+# new -> dedup / Places-confirm / IP-corroborate -> create a store; report ->
+# IP-corroborate an attribute claim -> apply to the store; delete -> IP-corroborate
+# -> stores.hidden = true. Accepted rows enqueue their photos into image_queue for
+# the vision classifier. It runs on psycopg3 (own connections from _socket_dsn()),
+# the same reason /products/scan does — so it's imported lazily here too.
+#
+# This MUTATES the spine (creates/edits/hides stores), so it is two-factor guarded.
+# It IS declared in openapi-gateway.yaml (callable only through the gateway, not the
+# raw run.app URL in practice), so it carries the global x-api-key like every route —
+# but that key is shared with the public apps, so it is NOT sufficient on its own.
+# The backend ALSO requires a secret: it compares the X-Process-Token header (which
+# the gateway forwards untouched) against the PROCESS_TOKEN env secret. Cloud Scheduler
+# hits the gateway URL on a cadence sending BOTH headers (x-api-key + X-Process-Token).
+# Fail-closed: if PROCESS_TOKEN is unset the route 503s rather than run unguarded.
+
+
+@app.post("/submissions/process")
+def process_submissions(x_process_token: Optional[str] = Header(None)):
+    """Run one pass over pending submissions (admin/cron trigger, not public).
+
+    Guarded by the PROCESS_TOKEN env secret, compared against the X-Process-Token
+    header. Returns a per-mode count of submissions still pending after the pass so a
+    scheduler/operator can see it's draining. The pass itself commits inside run()."""
+    expected = os.environ.get("PROCESS_TOKEN")
+    if not expected:
+        raise HTTPException(503, "submissions processor is not enabled (PROCESS_TOKEN unset)")
+    if x_process_token != expected:
+        raise HTTPException(403, "invalid or missing X-Process-Token")
+
+    from submissions import pipeline as sub_pipeline  # lazy: psycopg3 + requests
+
+    dsn = _socket_dsn()
+    sub_pipeline.run(dsn)
+    # Report what's left pending per mode so the caller can watch the queue drain.
+    with engine.connect() as cx:
+        rows = cx.execute(sqlalchemy.text(
+            "SELECT mode, count(*) AS pending FROM submissions "
+            "WHERE status = 'pending' GROUP BY mode"
+        )).mappings().all()
+    return {"status": "ok", "still_pending": {r["mode"]: r["pending"] for r in rows}}
