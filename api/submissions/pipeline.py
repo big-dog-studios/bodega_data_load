@@ -49,7 +49,7 @@ def process_new(conn):
         # 2. Google Places confirms a real store -> create verified
         if places.find_store(s["name"] or "", s["lat"], s["lng"]):
             db.create_store(conn, s["license_number"], s["name"], s["house"], s["street"],
-                            s["city"], s["zip"], s["lat"], s["lng"], s.get("hours"))
+                            s["city"], s["zip"], s["lat"], s["lng"], s.get("hours"), s)
             _accept(conn, [s], "places_confirmed")
             used.add(s["id"]); continue
         # 3. not in Places -> corroboration from distinct IPs
@@ -64,7 +64,7 @@ def process_new(conn):
         ips = {g["ip"] for g in group if g["ip"]}
         if len(ips) >= NEW_MIN_IPS:
             db.create_store(conn, s["license_number"], s["name"], s["house"], s["street"],
-                            s["city"], s["zip"], s["lat"], s["lng"], s.get("hours"))
+                            s["city"], s["zip"], s["lat"], s["lng"], s.get("hours"), s)
             _accept(conn, group, "ip_corroborated")
             used.update(g["id"] for g in group)
         # else: leave pending until more reports arrive

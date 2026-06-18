@@ -160,21 +160,34 @@ def enqueue_images(conn, submission_id, license_number, photos, receipt):
 
 
 # ---------- writes (stores) ----------
-def create_store(conn, license_number, name, house, street, city, zip_, lat, lng, hours=None):
+def create_store(conn, license_number, name, house, street, city, zip_, lat, lng,
+                 hours=None, flags=None):
     """Create a store. license_number is the GUID assigned in the submission (new
     stores have no real license). dba = UPPER(name); join_key = UPPER('house street zip').
     hours is the submission's structured hours JSON -> formatted into hours_summary.
+
+    flags is the submission row (or any dict) carrying the survey booleans
+    prepared_food/lottery/alcohol/tobacco/snap/atm/cat -> the store's has_*/alc_class
+    columns. A survey-created store has no government feed yet, so the surveyor's
+    answers are the only signal; the additive loaders (snap/tobacco/lottery/...)
+    corroborate later. NULL/False -> false; alcohol true -> alc_class 71 (sells beer).
     Being in stores IS the verification -- no separate verified flag."""
+    flags = flags or {}
+    yn = lambda k: bool(flags.get(k))      # unanswered (None) or False -> False
     dba = (name or "").upper() or None
     join_key = " ".join(p for p in (house, street, zip_) if p).upper() or None
     conn.execute(
         "INSERT INTO stores (license_number, source, dba, display_name, "
-        "  house, street, city, zip, geom, join_key, hours_summary) "
+        "  house, street, city, zip, geom, join_key, hours_summary, "
+        "  has_prepared_food, has_lottery, has_tobacco, has_snap, has_atm, has_cat, alc_class) "
         "VALUES (%s, 'submission', %s, %s, %s, %s, %s, %s, "
-        "        ST_SetSRID(ST_MakePoint(%s,%s),4326), %s, %s) "
+        "        ST_SetSRID(ST_MakePoint(%s,%s),4326), %s, %s, "
+        "        %s, %s, %s, %s, %s, %s, %s) "
         "ON CONFLICT (license_number) DO NOTHING",
         (license_number, dba, name, house, street, city, zip_, lng, lat, join_key,
-         format_hours(hours)))
+         format_hours(hours),
+         yn("prepared_food"), yn("lottery"), yn("tobacco"), yn("snap"),
+         yn("atm"), yn("cat"), 71 if flags.get("alcohol") else None))
     return license_number
 
 
