@@ -1,6 +1,77 @@
 """DB helpers for submission processing. psycopg (v3). Parameterized only.
 Mapped to the real stores schema (has_* amenities, dba/display_name, alc_class)."""
+import json
+
 import psycopg
+
+# Day index 0 = Monday (the client's hours-picker convention), abbrevs in week order.
+_DAY_ABBR = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
+
+
+def _fmt_time(m) -> str:
+    """Minutes-from-midnight -> 12h clock. 420 -> '7AM', 510 -> '8:30AM', 0 -> '12AM'."""
+    m = int(m) % (24 * 60)
+    h, mn = divmod(m, 60)
+    period = "AM" if h < 12 else "PM"
+    h12 = h % 12 or 12
+    return f"{h12}{period}" if mn == 0 else f"{h12}:{mn:02d}{period}"
+
+
+def _fmt_days(days) -> str:
+    """Compress 0-6 day indices into runs: all 7 -> 'Daily', [0..5] -> 'M-Sa',
+    [0,2,4] -> 'M-W-F' style joined by ',', single -> 'M'."""
+    ds = sorted({int(d) for d in days if 0 <= int(d) <= 6})
+    if not ds:
+        return ""
+    if len(ds) == 7:
+        return "Daily"
+    runs, start, prev = [], ds[0], ds[0]
+    for d in ds[1:]:
+        if d == prev + 1:
+            prev = d
+        else:
+            runs.append((start, prev)); start = prev = d
+    runs.append((start, prev))
+    return ",".join(_DAY_ABBR[a] if a == b else f"{_DAY_ABBR[a]}-{_DAY_ABBR[b]}"
+                    for a, b in runs)
+
+
+def format_hours(raw) -> str | None:
+    """Structured hours JSON -> readable hours_summary, e.g.
+    'M-Sa: 7AM - 11PM, Su: 8:30AM - 8:30PM'. Accepts the JSON string (or a dict).
+    Returns None on empty/garbage so we never store a raw blob or crash the pass.
+
+    Shape: {"v":1,"groups":[{"days":[0..6],"mode":"24"|"hours"|"closed",
+            "open":<min>,"close":<min>}]}. open/close are minutes from midnight."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        groups = data.get("groups", [])
+    except (ValueError, AttributeError, TypeError):
+        return None
+    segs = []
+    for g in groups:
+        try:
+            label = _fmt_days(g.get("days", []))
+            if not label:
+                continue
+            mode = g.get("mode")
+            if mode == "24":
+                when = "24 hours"
+            elif mode == "closed":
+                when = "Closed"
+            elif mode == "hours" and g.get("open") is not None and g.get("close") is not None:
+                when = f"{_fmt_time(g['open'])} - {_fmt_time(g['close'])}"
+            else:
+                continue
+            segs.append((min(int(d) for d in g["days"]), f"{label}: {when}"))
+        except (ValueError, TypeError, KeyError):
+            continue
+    if not segs:
+        return None
+    segs.sort(key=lambda x: x[0])           # week order, earliest day first
+    return ", ".join(s for _, s in segs)
 
 # submission report field -> stores column. address excluded: stores uses
 # structured house/street/city/zip, not a freeform field. alcohol is special-
@@ -89,19 +160,21 @@ def enqueue_images(conn, submission_id, license_number, photos, receipt):
 
 
 # ---------- writes (stores) ----------
-def create_store(conn, license_number, name, house, street, city, zip_, lat, lng):
+def create_store(conn, license_number, name, house, street, city, zip_, lat, lng, hours=None):
     """Create a store. license_number is the GUID assigned in the submission (new
     stores have no real license). dba = UPPER(name); join_key = UPPER('house street zip').
+    hours is the submission's structured hours JSON -> formatted into hours_summary.
     Being in stores IS the verification -- no separate verified flag."""
     dba = (name or "").upper() or None
     join_key = " ".join(p for p in (house, street, zip_) if p).upper() or None
     conn.execute(
         "INSERT INTO stores (license_number, source, dba, display_name, "
-        "  house, street, city, zip, geom, join_key) "
+        "  house, street, city, zip, geom, join_key, hours_summary) "
         "VALUES (%s, 'submission', %s, %s, %s, %s, %s, %s, "
-        "        ST_SetSRID(ST_MakePoint(%s,%s),4326), %s) "
+        "        ST_SetSRID(ST_MakePoint(%s,%s),4326), %s, %s) "
         "ON CONFLICT (license_number) DO NOTHING",
-        (license_number, dba, name, house, street, city, zip_, lng, lat, join_key))
+        (license_number, dba, name, house, street, city, zip_, lng, lat, join_key,
+         format_hours(hours)))
     return license_number
 
 
@@ -117,7 +190,12 @@ def apply_update(conn, license_number, field, value):
                      (71 if value else None, license_number))
         return
     col = FIELD_MAP[field]
-    v = value.upper() if field == "name" else value
+    if field == "name":
+        v = value.upper()
+    elif field == "hours":          # structured JSON -> readable hours_summary, not raw blob
+        v = format_hours(value)
+    else:
+        v = value
     conn.execute(f'UPDATE stores SET "{col}" = %s WHERE license_number = %s',
                  (v, license_number))
 
