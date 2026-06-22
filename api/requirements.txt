@@ -5,6 +5,9 @@ pg8000
 cloud-sql-python-connector
 google-cloud-storage
 python-multipart
+# IANA timezone database for zoneinfo (the slim base image ships none) — the
+# is_open filter on GET /stores resolves "now" in America/New_York via ZoneInfo
+tzdata
 # vision catalog pipeline (POST /products/scan): Claude vision + Vertex embeddings,
 # psycopg3 + pgvector (the Connector can't drive psycopg3, so it uses a socket DSN).
 anthropic
