@@ -8,7 +8,7 @@ here (no cross-folder import).
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET  | `/stores?bbox=W,S,E,N` | light pins in the viewport (+ flag filters) |
+| GET  | `/stores?bbox=W,S,E,N` | light pins in the viewport (+ flag filters, `is_open`) |
 | GET  | `/stores/{license_number}` | one full record |
 | GET  | `/stores/{license_number}/products` | catalog + category facets for one store |
 | POST | `/submissions` | save one field survey + its photos (multipart) |
@@ -63,6 +63,10 @@ trust signal = **distinct IPs** (no photo/evidence shortcut):
   distinct IPs agree → `create_store` (provisional); else leave pending.
 - **report** → group attribute claims by `(license, field, value)`; apply at 2 IPs
   (hours / boolean flags / alcohol) or 3 IPs (name / geom). `alcohol`→`alc_class=71`.
+  An accepted `hours` claim also writes the normalized **`store_hours`** rows (one per
+  weekday/open-window, US/Eastern, overnight spans split at midnight) that back the
+  `GET /stores?is_open=` filter, in addition to the free-text `stores.hours_summary`.
+  `create_store` writes them too for a new store.
 - **delete** → 3 distinct IPs → `stores.hidden = true` (reversible; **never** hard-delete).
 
 Accepted `new`/`report` rows enqueue their photos into **`image_queue`** (receipt→

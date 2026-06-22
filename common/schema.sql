@@ -49,6 +49,23 @@ CREATE INDEX IF NOT EXISTS stores_join_key_ix ON stores (join_key);
 -- no-op on them). Survey-only flag; nullable to match the live schema.
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS has_wic boolean DEFAULT false;
 
+-- Structured opening hours, normalized one row per (store, weekday, open window).
+-- Powers the `is_open` filter on GET /stores. dow is 0=Monday (the survey picker's
+-- convention, == Python's weekday()); open_min/close_min are minutes from midnight in
+-- US/Eastern. Overnight spans are split at midnight on write (submissions/db.py), so
+-- close_min > open_min always holds and a row never crosses a day boundary. Written by
+-- the submissions processor from a survey's structured hours JSON (alongside
+-- stores.hours_summary). Soft reference to stores (no FK) like submissions, since the
+-- food-stores/sla loaders DELETE & re-add store rows on refresh.
+CREATE TABLE IF NOT EXISTS store_hours (
+  license_number text    NOT NULL,
+  dow            smallint NOT NULL CHECK (dow >= 0 AND dow <= 6),
+  open_min       integer  NOT NULL CHECK (open_min >= 0 AND open_min < 1440),
+  close_min      integer  NOT NULL CHECK (close_min > open_min AND close_min <= 1440)
+);
+CREATE INDEX IF NOT EXISTS ix_hours_lookup ON store_hours (dow, open_min, close_min);
+CREATE INDEX IF NOT EXISTS ix_hours_store  ON store_hours (license_number, dow);
+
 -- SLA license type lookup (3NF). Seeded from the LEAP decoder
 -- (leap-license-type-and-class-definitions.xlsx); see seed_sla_license_codes.sql.
 -- Natural key is (type_code, class_code) — Type is 1 across the file, Class is the

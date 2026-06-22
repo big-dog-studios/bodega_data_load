@@ -73,6 +73,67 @@ def format_hours(raw) -> str | None:
     segs.sort(key=lambda x: x[0])           # week order, earliest day first
     return ", ".join(s for _, s in segs)
 
+
+def _expand_hours(data) -> list[tuple]:
+    """Structured hours dict -> [(dow, open_min, close_min), ...] rows for store_hours.
+    dow is 0=Monday (the picker convention, == Python's weekday()), open/close are
+    minutes from midnight. mode '24' -> a full (0,1440) day; 'closed'/anything else ->
+    no rows. An overnight span (close <= open, e.g. 6AM->2AM) is SPLIT at midnight into
+    (open,1440) on the day and (0,close) on the next day so every row satisfies the
+    table's close_min > open_min / close_min <= 1440 checks and the is_open interval
+    test needs no wraparound logic. Garbage groups are skipped, never raised."""
+    rows = []
+    for g in (data.get("groups", []) if isinstance(data, dict) else []):
+        try:
+            mode = g.get("mode")
+            days = [int(d) for d in g.get("days", []) if 0 <= int(d) <= 6]
+            if not days:
+                continue
+            if mode == "24":
+                for d in days:
+                    rows.append((d, 0, 1440))
+            elif mode == "hours":
+                o, c = g.get("open"), g.get("close")
+                if o is None or c is None:
+                    continue
+                o, c = int(o), int(c)
+                if not (0 <= o < 1440) or not (0 < c <= 1440):
+                    continue
+                for d in days:
+                    if c > o:                       # same-day window
+                        rows.append((d, o, c))
+                    elif c < o:                     # overnight: split at midnight
+                        rows.append((d, o, 1440))
+                        rows.append(((d + 1) % 7, 0, c))
+                    # c == o: degenerate zero-length window -> skip
+            # mode == "closed" (or unknown): contributes no open rows
+        except (ValueError, TypeError, KeyError):
+            continue
+    return sorted(set(rows))                          # de-dup overlapping groups
+
+
+def write_store_hours(conn, license_number, raw):
+    """Replace a store's store_hours rows from the submission's structured hours JSON.
+    Idempotent delete-then-insert of the expanded weekly rows (store_hours powers the
+    is_open filter on GET /stores). No-op when raw is empty or not a valid hours dict —
+    we leave existing rows untouched rather than wipe on garbage. A structurally valid
+    payload that encodes all-closed clears the rows (store reads as never open)."""
+    if not raw:
+        return
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return
+    if not isinstance(data, dict) or "groups" not in data:
+        return
+    rows = _expand_hours(data)
+    conn.execute("DELETE FROM store_hours WHERE license_number = %s", (license_number,))
+    if rows:
+        conn.executemany(
+            "INSERT INTO store_hours (license_number, dow, open_min, close_min) "
+            "VALUES (%s, %s, %s, %s)",
+            [(license_number, d, o, c) for (d, o, c) in rows])
+
 # submission report field -> stores column. address excluded: stores uses
 # structured house/street/city/zip, not a freeform field. alcohol is special-
 # cased in apply_update (sets alc_class = 71 when true).
@@ -189,6 +250,7 @@ def create_store(conn, license_number, name, house, street, city, zip_, lat, lng
          format_hours(hours),
          yn("prepared_food"), yn("lottery"), yn("tobacco"), yn("snap"),
          yn("atm"), yn("cat"), yn("wic"), 71 if flags.get("alcohol") else None))
+    write_store_hours(conn, license_number, hours)   # structured rows for the is_open filter
     return license_number
 
 
@@ -208,6 +270,7 @@ def apply_update(conn, license_number, field, value):
         v = value.upper()
     elif field == "hours":          # structured JSON -> readable hours_summary, not raw blob
         v = format_hours(value)
+        write_store_hours(conn, license_number, value)   # + structured rows for is_open
     else:
         v = value
     conn.execute(f'UPDATE stores SET "{col}" = %s WHERE license_number = %s',

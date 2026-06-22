@@ -25,7 +25,9 @@ Deployed as a Cloud Run Service; DB via the shared Connector engine in db.py.
 import os
 import re
 import uuid
+from datetime import datetime
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 import sqlalchemy
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
@@ -161,6 +163,7 @@ def list_stores(
     delivery: Optional[bool] = Query(None, description="Filter: offers delivery"),
     has_alcohol: Optional[bool] = Query(None, description="Filter on alc_class presence (true = has a license, false = none)"),
     has_products: Optional[bool] = Query(None, description="Filter: true = only stores with catalog items, false = only stores with none"),
+    is_open: Optional[bool] = Query(None, description="Filter on current open status (store hours are US/Eastern): true = open right now, false = not open right now"),
 ):
     west, south, east, north = _parse_bbox(bbox)
     params = {"west": west, "south": south, "east": east, "north": north, "lim": PIN_LIMIT}
@@ -190,8 +193,22 @@ def list_stores(
             f"AND {exists} (SELECT 1 FROM public.products p "
             "WHERE p.license_number = stores.license_number)"
         )
-    # TODO: "open now" filter — needs structured hours (weekly open/close periods)
-    # to compare against current NYC time. hours_summary is free text, not queryable.
+    # "Open now": a store_hours row for the current US/Eastern weekday whose
+    # [open_min, close_min) window covers the current minute-of-day. Hours are always
+    # Eastern, so we evaluate "now" in America/New_York. store_hours.dow is 0=Monday,
+    # which matches Python's weekday(), so no remap. Overnight spans are pre-split at
+    # midnight on write (see submissions/db.py), so a plain interval test suffices.
+    # Stores with no store_hours rows are treated as "not open" (unknown != open).
+    if is_open is not None:
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        params["now_dow"] = now_et.weekday()                 # 0=Mon .. 6=Sun
+        params["now_min"] = now_et.hour * 60 + now_et.minute
+        exists = ("EXISTS" if is_open else "NOT EXISTS")
+        clauses.append(
+            f"AND {exists} (SELECT 1 FROM public.store_hours h "
+            "WHERE h.license_number = stores.license_number "
+            "AND h.dow = :now_dow AND h.open_min <= :now_min AND h.close_min > :now_min)"
+        )
 
     sql = sqlalchemy.text(PINS_TEMPLATE.format(filters="\n      ".join(clauses)))
     with engine.connect() as cx:
