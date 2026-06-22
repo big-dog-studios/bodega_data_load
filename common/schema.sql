@@ -119,8 +119,11 @@ CREATE TABLE IF NOT EXISTS submissions (
   hours           text,
   receipt         text,                 -- GCS object path, or NULL — bytes live in the bucket
   photos          text[] NOT NULL DEFAULT '{}',  -- GCS object paths
+  user_id         text,                 -- authenticated submitter id; the CORROBORATION unit
+                                        -- (distinct user_ids = independent reports). NULL = anonymous,
+                                        -- which never counts toward corroboration.
   submitted_ip    text,                 -- best-effort client IP (X-Forwarded-For first hop);
-                                        -- SPOOFABLE — soft signal for dedup/abuse triage, never auth
+                                        -- SPOOFABLE — kept for abuse triage only, no longer a vote
   submitted_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS submissions_license_ix ON submissions (license_number);
@@ -134,6 +137,7 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS geom    geometry(Point, 4326);
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS submitted_ip text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS snap         boolean;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS wic          boolean;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS user_id      text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS house        text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS street       text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS city         text;

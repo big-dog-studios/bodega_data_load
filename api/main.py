@@ -246,12 +246,12 @@ def get_products(license_number: str):
 INSERT = sqlalchemy.text("""
     INSERT INTO submissions (license_number, mode, name, house, street, city, zip, geom,
                              prepared_food, lottery, alcohol, tobacco, snap,
-                             atm, cat, wic, hours, receipt, photos, submitted_ip)
+                             atm, cat, wic, hours, receipt, photos, user_id, submitted_ip)
     VALUES (:license_number, :mode, :name, :house, :street, :city, :zip,
             CASE WHEN CAST(:lat AS float8) IS NULL OR CAST(:lon AS float8) IS NULL THEN NULL
                  ELSE ST_SetSRID(ST_MakePoint(CAST(:lon AS float8), CAST(:lat AS float8)), 4326) END,
             :prepared_food, :lottery, :alcohol, :tobacco, :snap,
-            :atm, :cat, :wic, :hours, :receipt, :photos, :submitted_ip)
+            :atm, :cat, :wic, :hours, :receipt, :photos, :user_id, :submitted_ip)
     RETURNING id, license_number, submitted_at;
 """)
 
@@ -291,6 +291,7 @@ def create_submission(
     # photos as file parts in the same request. FastAPI maps each part by name.
     mode: str = Form(..., description='"new" (bodega not in the spine), "report" (existing license_number), or "delete" (flag existing store as gone)'),
     license_number: Optional[str] = Form(None, description="required when mode='report' or 'delete'; ignored & minted (uuid) when mode='new'"),
+    user_id: Optional[str] = Form(None, description="authenticated submitter id; the corroboration unit (distinct user_ids = independent reports). Omit for anonymous — anonymous submissions never corroborate"),
     name: Optional[str] = Form(None),     # surveyor-provided store name
     house: Optional[str] = Form(None),    # surveyor-provided address parts (mirror the spine)
     street: Optional[str] = Form(None),
@@ -352,6 +353,7 @@ def create_submission(
         "hours": hours,
         "receipt": receipt_path,
         "photos": photo_paths,
+        "user_id": user_id,
         "submitted_ip": _client_ip(request),
     }
     with engine.begin() as cx:

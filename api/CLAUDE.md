@@ -56,18 +56,20 @@ any pre-existing product names.
 
 The **`submissions/` package** (vendored here like `vision/`) turns the rows that
 `POST /submissions` writes into spine changes — a single corroboration-gated pass,
-trust signal = **distinct IPs** (no photo/evidence shortcut):
+trust signal = **distinct authenticated `user_id`s** (no photo/evidence shortcut).
+A submission with no `user_id` (anonymous) is stored but **never corroborates**.
+`submitted_ip` is kept for abuse triage only — it is no longer a vote:
 
 - **new** → in-DB dup (exact license, then fuzzy nearby name via `pg_trgm`) → mark
   `duplicate`; else Google Places confirms a real store → `create_store`; else 2+
-  distinct IPs agree → `create_store` (provisional); else leave pending.
-- **report** → group attribute claims by `(license, field, value)`; apply at 2 IPs
-  (hours / boolean flags / alcohol) or 3 IPs (name / geom). `alcohol`→`alc_class=71`.
+  distinct users agree → `create_store` (provisional); else leave pending.
+- **report** → group attribute claims by `(license, field, value)`; apply at 2 users
+  (hours / boolean flags / alcohol) or 3 users (name / geom). `alcohol`→`alc_class=71`.
   An accepted `hours` claim also writes the normalized **`store_hours`** rows (one per
   weekday/open-window, US/Eastern, overnight spans split at midnight) that back the
   `GET /stores?is_open=` filter, in addition to the free-text `stores.hours_summary`.
   `create_store` writes them too for a new store.
-- **delete** → 3 distinct IPs → `stores.hidden = true` (reversible; **never** hard-delete).
+- **delete** → 3 distinct users → `stores.hidden = true` (reversible; **never** hard-delete).
 
 Accepted `new`/`report` rows enqueue their photos into **`image_queue`** (receipt→
 `receipt`, photos→`shelf`; `UNIQUE(url)` dedupes) as the hand-off to the vision
@@ -78,7 +80,7 @@ Like `vision/`, it runs on **psycopg3** and opens its own connections from the s
 `_socket_dsn()` (the pg8000 read `engine` can't drive it), so `pipeline` is imported
 **lazily** inside the handler. Google Places (`submissions/places.py`) is **optional**:
 with `GOOGLE_MAPS_API_KEY` set it confirms new stores; unset, `find_store()` returns
-`None` and the pass falls back to IP corroboration — it never crashes for a missing key.
+`None` and the pass falls back to user corroboration — it never crashes for a missing key.
 
 **Mutates the spine — two-factor guarded, gateway-only.** The route is declared in
 `openapi-gateway.yaml`, so it's reached through the **gateway** (not the raw run.app
@@ -124,6 +126,7 @@ Form fields (all optional except `mode`):
 |---|---|---|
 | `mode` | text | **required** — `"new"`, `"report"`, or `"delete"` |
 | `license_number` | text | required when `mode="report"` or `"delete"`; ignored & minted (uuid) when `mode="new"` |
+| `user_id` | text | authenticated submitter id — the corroboration unit (distinct ids = independent reports). Omit for anonymous; anonymous never corroborates |
 | `name` | text | surveyor-provided store name (esp. for `mode="new"`) |
 | `house` / `street` / `city` / `zip` | text | address parts (mirror the spine; replaced the old free-text `address`) |
 | `lat` / `lon` | float | client-supplied; `geom` POINT built only when **both** are present |

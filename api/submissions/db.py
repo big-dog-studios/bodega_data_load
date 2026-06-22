@@ -186,10 +186,11 @@ def license_exists(conn, license_number) -> bool:
 
 
 def pending(conn, mode: str) -> list[dict]:
-    """Unprocessed submissions of a mode. submitted_ip aliased to 'ip';
-    geom split to lat/lng; structured address + photos/receipt carried."""
+    """Unprocessed submissions of a mode. user_id is the corroboration unit;
+    submitted_ip aliased to 'ip' (abuse triage only). geom split to lat/lng;
+    structured address + photos/receipt carried."""
     rows = conn.execute(
-        "SELECT id, license_number, submitted_ip AS ip, name, "
+        "SELECT id, license_number, user_id, submitted_ip AS ip, name, "
         "       house, street, city, zip, hours, "
         "       prepared_food, lottery, alcohol, tobacco, atm, cat, snap, wic, "
         "       photos, receipt, ST_Y(geom) AS lat, ST_X(geom) AS lng "
@@ -197,7 +198,7 @@ def pending(conn, mode: str) -> list[dict]:
         "ORDER BY submitted_at",
         (mode,),
     ).fetchall()
-    cols = ["id","license_number","ip","name","house","street","city","zip","hours",
+    cols = ["id","license_number","user_id","ip","name","house","street","city","zip","hours",
             "prepared_food","lottery","alcohol","tobacco","atm","cat","snap","wic",
             "photos","receipt","lat","lng"]
     return [dict(zip(cols, r)) for r in rows]
