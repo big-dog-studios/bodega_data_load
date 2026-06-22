@@ -30,7 +30,7 @@ from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 import sqlalchemy
-from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from db import engine
@@ -246,12 +246,12 @@ def get_products(license_number: str):
 INSERT = sqlalchemy.text("""
     INSERT INTO submissions (license_number, mode, name, house, street, city, zip, geom,
                              prepared_food, lottery, alcohol, tobacco, snap,
-                             atm, cat, wic, hours, receipt, photos, user_id, submitted_ip)
+                             atm, cat, wic, hours, receipt, photos, user_id)
     VALUES (:license_number, :mode, :name, :house, :street, :city, :zip,
             CASE WHEN CAST(:lat AS float8) IS NULL OR CAST(:lon AS float8) IS NULL THEN NULL
                  ELSE ST_SetSRID(ST_MakePoint(CAST(:lon AS float8), CAST(:lat AS float8)), 4326) END,
             :prepared_food, :lottery, :alcohol, :tobacco, :snap,
-            :atm, :cat, :wic, :hours, :receipt, :photos, :user_id, :submitted_ip)
+            :atm, :cat, :wic, :hours, :receipt, :photos, :user_id)
     RETURNING id, license_number, submitted_at;
 """)
 
@@ -271,22 +271,8 @@ def _yn(v: Optional[str]) -> Optional[bool]:
     return True if s in ("yes", "y", "true") else False if s in ("no", "n", "false") else None
 
 
-def _client_ip(request: Request) -> Optional[str]:
-    """Best-effort client IP. Behind Cloud Run the real caller is the first hop of
-    X-Forwarded-For (request.client.host is Google's front-end proxy). SPOOFABLE —
-    the caller can prepend a fake XFF — so use it for dedup/abuse triage only, never
-    for auth or access decisions."""
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip() or None
-    return request.client.host if request.client else None
-
-
 @app.post("/submissions", status_code=201)
 def create_submission(
-    # `request` (no default) must precede the Form(...) params. Used only to read the
-    # client IP from headers — it carries no body part of its own.
-    request: Request,
     # The survey is sent as multipart/form-data: scalar answers as form fields,
     # photos as file parts in the same request. FastAPI maps each part by name.
     mode: str = Form(..., description='"new" (bodega not in the spine), "report" (existing license_number), or "delete" (flag existing store as gone)'),
@@ -354,7 +340,6 @@ def create_submission(
         "receipt": receipt_path,
         "photos": photo_paths,
         "user_id": user_id,
-        "submitted_ip": _client_ip(request),
     }
     with engine.begin() as cx:
         row = cx.execute(INSERT, params).mappings().first()

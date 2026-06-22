@@ -122,8 +122,6 @@ CREATE TABLE IF NOT EXISTS submissions (
   user_id         text,                 -- authenticated submitter id; the CORROBORATION unit
                                         -- (distinct user_ids = independent reports). NULL = anonymous,
                                         -- which never counts toward corroboration.
-  submitted_ip    text,                 -- best-effort client IP (X-Forwarded-For first hop);
-                                        -- SPOOFABLE — kept for abuse triage only, no longer a vote
   submitted_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS submissions_license_ix ON submissions (license_number);
@@ -134,10 +132,11 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS mode    text NOT NULL DEFAULT '
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS name    text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS address text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS geom    geometry(Point, 4326);
-ALTER TABLE submissions ADD COLUMN IF NOT EXISTS submitted_ip text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS snap         boolean;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS wic          boolean;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS user_id      text;
+-- submitted_ip retired: corroboration is by distinct user_id now, IP is not stored.
+ALTER TABLE submissions DROP COLUMN IF EXISTS submitted_ip;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS house        text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS street       text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS city         text;

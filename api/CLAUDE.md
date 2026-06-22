@@ -58,7 +58,7 @@ The **`submissions/` package** (vendored here like `vision/`) turns the rows tha
 `POST /submissions` writes into spine changes — a single corroboration-gated pass,
 trust signal = **distinct authenticated `user_id`s** (no photo/evidence shortcut).
 A submission with no `user_id` (anonymous) is stored but **never corroborates**.
-`submitted_ip` is kept for abuse triage only — it is no longer a vote:
+Client IP is no longer captured or stored (the old `submitted_ip` column is dropped):
 
 - **new** → in-DB dup (exact license, then fuzzy nearby name via `pg_trgm`) → mark
   `duplicate`; else Google Places confirms a real store → `create_store`; else 2+
@@ -73,7 +73,7 @@ A submission with no `user_id` (anonymous) is stored but **never corroborates**.
 
 Accepted `new`/`report` rows enqueue their photos into **`image_queue`** (receipt→
 `receipt`, photos→`shelf`; `UNIQUE(url)` dedupes) as the hand-off to the vision
-classifier. Knobs (radii, IP thresholds, name similarity) are constants at the top of
+classifier. Knobs (radii, user-count thresholds, name similarity) are constants at the top of
 `submissions/pipeline.py`.
 
 Like `vision/`, it runs on **psycopg3** and opens its own connections from the shared
