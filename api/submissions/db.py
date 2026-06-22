@@ -129,10 +129,13 @@ def write_store_hours(conn, license_number, raw):
     rows = _expand_hours(data)
     conn.execute("DELETE FROM store_hours WHERE license_number = %s", (license_number,))
     if rows:
-        conn.executemany(
-            "INSERT INTO store_hours (license_number, dow, open_min, close_min) "
-            "VALUES (%s, %s, %s, %s)",
-            [(license_number, d, o, c) for (d, o, c) in rows])
+        # executemany lives on the cursor in psycopg3 (conn.execute is a shortcut, but
+        # there is no conn.executemany), so go through an explicit cursor here.
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO store_hours (license_number, dow, open_min, close_min) "
+                "VALUES (%s, %s, %s, %s)",
+                [(license_number, d, o, c) for (d, o, c) in rows])
 
 # submission report field -> stores column. address excluded: stores uses
 # structured house/street/city/zip, not a freeform field. alcohol is special-
