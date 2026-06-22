@@ -124,7 +124,7 @@ Form fields (all optional except `mode`):
 | `house` / `street` / `city` / `zip` | text | address parts (mirror the spine; replaced the old free-text `address`) |
 | `lat` / `lon` | float | client-supplied; `geom` POINT built only when **both** are present |
 | `prepared_food` / `lottery` / `alcohol` / `tobacco` / `snap` | text | `"yes"`/`"no"` → bool |
-| `atm` / `cat` | text | `"yes"`/`"no"` → bool |
+| `atm` / `cat` / `wic` | text | `"yes"`/`"no"` → bool |
 | `hours` | text | free text |
 | `receipt` | file | one receipt photo |
 | `photos` | file (repeatable) | zero or more store photos |

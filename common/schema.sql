@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS stores (
   has_cat           boolean NOT NULL DEFAULT false,  -- bodega cat present (survey-only)
   cat_name          text,                            -- the cat's name, if any (free text)
   has_atm           boolean NOT NULL DEFAULT false,  -- ATM on premises (survey-only)
+  has_wic           boolean DEFAULT false,           -- accepts WIC (survey-only)
   -- Google Places enrichment (set by the places loader; all nullable until enriched).
   place_id             text,                          -- Google Places resource id
   display_name         text,                          -- Places-formatted name
@@ -43,6 +44,10 @@ CREATE TABLE IF NOT EXISTS stores (
 
 CREATE INDEX IF NOT EXISTS stores_geom_gix ON stores USING gist (geom);
 CREATE INDEX IF NOT EXISTS stores_join_key_ix ON stores (join_key);
+
+-- Migration for DBs created before has_wic existed (CREATE TABLE IF NOT EXISTS is a
+-- no-op on them). Survey-only flag; nullable to match the live schema.
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS has_wic boolean DEFAULT false;
 
 -- SLA license type lookup (3NF). Seeded from the LEAP decoder
 -- (leap-license-type-and-class-definitions.xlsx); see seed_sla_license_codes.sql.
@@ -93,6 +98,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   snap            boolean,              -- accepts SNAP/EBT (vs stores.has_snap)
   atm             boolean,              -- ATM on premises (survey-only; no government feed)
   cat             boolean,              -- bodega cat present (survey-only)
+  wic             boolean,              -- accepts WIC (vs stores.has_wic)
   hours           text,
   receipt         text,                 -- GCS object path, or NULL — bytes live in the bucket
   photos          text[] NOT NULL DEFAULT '{}',  -- GCS object paths
@@ -110,6 +116,7 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS address text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS geom    geometry(Point, 4326);
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS submitted_ip text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS snap         boolean;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS wic          boolean;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS house        text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS street       text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS city         text;

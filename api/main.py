@@ -55,7 +55,7 @@ PIN_LIMIT = 2000
 # Boolean flag columns the frontend can badge pins with and filter on.
 FLAG_COLUMNS = (
     "has_snap", "has_tobacco", "has_lottery", "has_quick_draw", "has_prepared_food",
-    "has_cat", "has_atm", "takeout", "delivery",
+    "has_cat", "has_atm", "has_wic", "takeout", "delivery",
 )
 
 # Light pins inside the viewport. `&&` uses the GiST index and is exact for
@@ -66,7 +66,7 @@ FLAG_COLUMNS = (
 # (FLAG_COLUMNS) — values stay bound, so no injection surface.
 PINS_TEMPLATE = """
     SELECT license_number, dba, ST_Y(geom) AS lat, ST_X(geom) AS lon,
-           has_snap, has_tobacco, has_lottery, has_quick_draw, has_prepared_food,
+           has_snap, has_tobacco, has_lottery, has_quick_draw, has_prepared_food, has_wic,
            (alc_class IS NOT NULL) AS has_alcohol
     FROM public.stores
     WHERE geom && ST_MakeEnvelope(:west, :south, :east, :north, 4326)
@@ -82,7 +82,7 @@ DETAIL = sqlalchemy.text("""
     SELECT s.license_number, s.dba, s.entity,
            s.house, s.street, s.city, s.county, s.zip, s.estab_type,
            s.has_snap, s.has_tobacco, s.has_lottery, s.has_quick_draw,
-           s.has_prepared_food, s.has_atm, s.has_cat, s.cat_name,
+           s.has_prepared_food, s.has_atm, s.has_cat, s.cat_name, s.has_wic,
            s.alc_class, lc.class_description AS alc_description, lc.product AS alc_product,
            s.place_id, s.display_name, s.phone, s.rating, s.user_rating_count,
            s.accepts_credit_cards, s.accepts_debit_cards, s.accepts_cash_only,
@@ -156,6 +156,7 @@ def list_stores(
     has_prepared_food: Optional[bool] = Query(None),
     has_cat: Optional[bool] = Query(None, description="Filter: bodega cat present"),
     has_atm: Optional[bool] = Query(None, description="Filter: ATM on premises"),
+    has_wic: Optional[bool] = Query(None, description="Filter: accepts WIC"),
     takeout: Optional[bool] = Query(None, description="Filter: offers takeout"),
     delivery: Optional[bool] = Query(None, description="Filter: offers delivery"),
     has_alcohol: Optional[bool] = Query(None, description="Filter on alc_class presence (true = has a license, false = none)"),
@@ -170,7 +171,8 @@ def list_stores(
     flag_args = {
         "has_snap": has_snap, "has_tobacco": has_tobacco, "has_lottery": has_lottery,
         "has_quick_draw": has_quick_draw, "has_prepared_food": has_prepared_food,
-        "has_cat": has_cat, "has_atm": has_atm, "takeout": takeout, "delivery": delivery,
+        "has_cat": has_cat, "has_atm": has_atm, "has_wic": has_wic,
+        "takeout": takeout, "delivery": delivery,
     }
     for col in FLAG_COLUMNS:
         val = flag_args[col]
@@ -227,12 +229,12 @@ def get_products(license_number: str):
 INSERT = sqlalchemy.text("""
     INSERT INTO submissions (license_number, mode, name, house, street, city, zip, geom,
                              prepared_food, lottery, alcohol, tobacco, snap,
-                             atm, cat, hours, receipt, photos, submitted_ip)
+                             atm, cat, wic, hours, receipt, photos, submitted_ip)
     VALUES (:license_number, :mode, :name, :house, :street, :city, :zip,
             CASE WHEN CAST(:lat AS float8) IS NULL OR CAST(:lon AS float8) IS NULL THEN NULL
                  ELSE ST_SetSRID(ST_MakePoint(CAST(:lon AS float8), CAST(:lat AS float8)), 4326) END,
             :prepared_food, :lottery, :alcohol, :tobacco, :snap,
-            :atm, :cat, :hours, :receipt, :photos, :submitted_ip)
+            :atm, :cat, :wic, :hours, :receipt, :photos, :submitted_ip)
     RETURNING id, license_number, submitted_at;
 """)
 
@@ -286,6 +288,7 @@ def create_submission(
     snap: Optional[str] = Form(None),  # accepts SNAP/EBT — "yes"/"no" — coerced to bool below
     atm: Optional[str] = Form(None),  # "yes"/"no" — coerced to bool below
     cat: Optional[str] = Form(None),  # bodega cat present?
+    wic: Optional[str] = Form(None),  # accepts WIC — "yes"/"no" — coerced to bool below
     hours: Optional[str] = Form(None),
     receipt: Optional[UploadFile] = File(None),  # one receipt photo, optional
     photos: List[UploadFile] = File(default=[]),  # zero or more store photos
@@ -328,6 +331,7 @@ def create_submission(
         "snap": _yn(snap),
         "atm": _yn(atm),
         "cat": _yn(cat),
+        "wic": _yn(wic),
         "hours": hours,
         "receipt": receipt_path,
         "photos": photo_paths,

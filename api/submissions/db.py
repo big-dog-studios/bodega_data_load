@@ -84,9 +84,10 @@ FIELD_MAP = {
     "atm":           "has_atm",
     "cat":           "has_cat",
     "snap":          "has_snap",
+    "wic":           "has_wic",
     "name":          "dba",       # stored UPPER()
 }
-LOW_RISK  = {"hours", "prepared_food", "lottery", "tobacco", "atm", "cat", "snap", "alcohol"}
+LOW_RISK  = {"hours", "prepared_food", "lottery", "tobacco", "atm", "cat", "snap", "wic", "alcohol"}
 HIGH_RISK = {"name", "geom"}
 UPDATABLE = LOW_RISK | HIGH_RISK
 
@@ -126,14 +127,14 @@ def pending(conn, mode: str) -> list[dict]:
     rows = conn.execute(
         "SELECT id, license_number, submitted_ip AS ip, name, "
         "       house, street, city, zip, hours, "
-        "       prepared_food, lottery, alcohol, tobacco, atm, cat, snap, "
+        "       prepared_food, lottery, alcohol, tobacco, atm, cat, snap, wic, "
         "       photos, receipt, ST_Y(geom) AS lat, ST_X(geom) AS lng "
         "FROM submissions WHERE mode = %s AND status = 'pending' "
         "ORDER BY submitted_at",
         (mode,),
     ).fetchall()
     cols = ["id","license_number","ip","name","house","street","city","zip","hours",
-            "prepared_food","lottery","alcohol","tobacco","atm","cat","snap",
+            "prepared_food","lottery","alcohol","tobacco","atm","cat","snap","wic",
             "photos","receipt","lat","lng"]
     return [dict(zip(cols, r)) for r in rows]
 
@@ -167,7 +168,7 @@ def create_store(conn, license_number, name, house, street, city, zip_, lat, lng
     hours is the submission's structured hours JSON -> formatted into hours_summary.
 
     flags is the submission row (or any dict) carrying the survey booleans
-    prepared_food/lottery/alcohol/tobacco/snap/atm/cat -> the store's has_*/alc_class
+    prepared_food/lottery/alcohol/tobacco/snap/atm/cat/wic -> the store's has_*/alc_class
     columns. A survey-created store has no government feed yet, so the surveyor's
     answers are the only signal; the additive loaders (snap/tobacco/lottery/...)
     corroborate later. NULL/False -> false; alcohol true -> alc_class 71 (sells beer).
@@ -179,15 +180,15 @@ def create_store(conn, license_number, name, house, street, city, zip_, lat, lng
     conn.execute(
         "INSERT INTO stores (license_number, source, dba, display_name, "
         "  house, street, city, zip, geom, join_key, hours_summary, "
-        "  has_prepared_food, has_lottery, has_tobacco, has_snap, has_atm, has_cat, alc_class) "
+        "  has_prepared_food, has_lottery, has_tobacco, has_snap, has_atm, has_cat, has_wic, alc_class) "
         "VALUES (%s, 'submission', %s, %s, %s, %s, %s, %s, "
         "        ST_SetSRID(ST_MakePoint(%s,%s),4326), %s, %s, "
-        "        %s, %s, %s, %s, %s, %s, %s) "
+        "        %s, %s, %s, %s, %s, %s, %s, %s) "
         "ON CONFLICT (license_number) DO NOTHING",
         (license_number, dba, name, house, street, city, zip_, lng, lat, join_key,
          format_hours(hours),
          yn("prepared_food"), yn("lottery"), yn("tobacco"), yn("snap"),
-         yn("atm"), yn("cat"), 71 if flags.get("alcohol") else None))
+         yn("atm"), yn("cat"), yn("wic"), 71 if flags.get("alcohol") else None))
     return license_number
 
 
