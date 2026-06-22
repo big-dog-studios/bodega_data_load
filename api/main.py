@@ -72,6 +72,7 @@ PINS_TEMPLATE = """
            (alc_class IS NOT NULL) AS has_alcohol
     FROM public.stores
     WHERE geom && ST_MakeEnvelope(:west, :south, :east, :north, 4326)
+      AND NOT hidden
       {filters}
     ORDER BY ( has_prepared_food::int + has_snap::int + has_tobacco::int
              + has_lottery::int + (alc_class IS NOT NULL)::int ) DESC
