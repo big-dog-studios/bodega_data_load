@@ -3,6 +3,8 @@
 Read (see api/CLAUDE.md):
   GET  /stores?bbox=west,south,east,north  -> light pins for the viewport.
   GET  /stores/{license_number}            -> one full record (detail-on-tap).
+  GET  /sync/stores[?since=<iso>]          -> offline-first delta feed (hidden rows
+    included so the client can delete locally; hours nested; cursor = server_time).
 
 Write (field surveys -> `submissions`):
   POST /submissions  (multipart/form-data)  -> save one survey + its photos.
@@ -123,6 +125,38 @@ FACETS = sqlalchemy.text("""
     ORDER BY c.sort_order NULLS LAST, c.label;
 """)
 
+# Full-fidelity sync feed for the offline-first client. Returns every field the app
+# holds locally + `is_hidden` + `updated_at`, with each store's opening hours nested
+# inline (one download, one cursor — store_hours is NOT synced on its own; the client
+# just files the nested array into its local store_hours table). {where} is empty for a
+# full pull or `WHERE s.updated_at > :since` for a delta. Hidden rows are INCLUDED on
+# purpose: a just-hidden store must appear in the delta so the client can delete it
+# locally (is_hidden=true == "remove"). Ordered by updated_at so the feed is a clean
+# monotonic stream. Mirrors the DETAIL column set so a synced row == a /stores/{id} row.
+SYNC_TEMPLATE = """
+    SELECT s.license_number, s.dba, s.entity,
+           s.house, s.street, s.city, s.county, s.zip, s.estab_type,
+           s.has_snap, s.has_tobacco, s.has_lottery, s.has_quick_draw,
+           s.has_prepared_food, s.has_atm, s.has_cat, s.cat_name, s.has_wic,
+           s.alc_class, lc.class_description AS alc_description, lc.product AS alc_product,
+           s.place_id, s.display_name, s.phone, s.rating, s.user_rating_count,
+           s.accepts_credit_cards, s.accepts_debit_cards, s.accepts_cash_only,
+           s.accepts_nfc, s.takeout, s.delivery, s.hours_summary,
+           s.hidden AS is_hidden, s.updated_at,
+           ST_Y(s.geom) AS lat, ST_X(s.geom) AS lon,
+           COALESCE((
+             SELECT json_agg(json_build_object(
+                      'dow', h.dow, 'open_min', h.open_min, 'close_min', h.close_min)
+                    ORDER BY h.dow, h.open_min)
+             FROM public.store_hours h
+             WHERE h.license_number = s.license_number
+           ), '[]'::json) AS hours
+    FROM public.stores s
+    LEFT JOIN sla_license_codes lc ON lc.class_code = s.alc_class
+    {where}
+    ORDER BY s.updated_at ASC;
+"""
+
 
 def _parse_bbox(bbox: str):
     parts = bbox.split(",")
@@ -237,6 +271,37 @@ def get_products(license_number: str):
         "license_number": license_number,
         "products": [dict(r) for r in products],
         "facets": [dict(r) for r in facets],
+    }
+
+
+@app.get("/sync/stores")
+def sync_stores(
+    since: Optional[datetime] = Query(
+        None,
+        description="ISO timestamp cursor. Omit for a full pull; pass the previous "
+                    "response's server_time to get only rows changed since then."),
+):
+    """Offline-first delta feed: every store the client should hold (hidden ones
+    INCLUDED, so the client can delete them locally), each with its hours nested.
+
+    The cursor is `server_time` from the prior response — NOT the client clock and NOT
+    the max row timestamp — to avoid clock-skew gaps. We read the rows and read now()
+    inside ONE transaction, so server_time is the snapshot boundary: anything committed
+    after it carries updated_at > server_time and is caught on the next call (no row can
+    slip through the gap, none is sent twice)."""
+    where = ""
+    params = {}
+    if since is not None:
+        where = "WHERE s.updated_at > :since"
+        params["since"] = since
+    sql = sqlalchemy.text(SYNC_TEMPLATE.format(where=where))
+    # One transaction so now() (the cursor) and the row snapshot are consistent.
+    with engine.begin() as cx:
+        server_time = cx.execute(sqlalchemy.text("SELECT now()")).scalar()
+        rows = cx.execute(sql, params).mappings().all()
+    return {
+        "stores": [dict(r) for r in rows],
+        "server_time": server_time.isoformat(),
     }
 
 

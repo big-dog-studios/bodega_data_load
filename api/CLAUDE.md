@@ -11,9 +11,36 @@ here (no cross-folder import).
 | GET  | `/stores?bbox=W,S,E,N` | light pins in the viewport (+ flag filters, `is_open`) |
 | GET  | `/stores/{license_number}` | one full record |
 | GET  | `/stores/{license_number}/products` | catalog + category facets for one store |
+| GET  | `/sync/stores` | offline-first delta feed (`?since=<iso>`); hidden rows included, hours nested, cursor = `server_time` |
 | POST | `/submissions` | save one field survey + its photos (multipart) |
 | POST | `/submissions/process` | run one corroboration-gated pass over pending submissions (admin/cron; token-gated) |
 | POST | `/products/scan` | classify one receipt/shelf photo into `products` (multipart) |
+
+## The sync feed (`GET /sync/stores`)
+
+Offline-first delta feed for the mobile client. One endpoint, one cursor — there is
+**no** separate hours sync; each store carries its opening hours **nested** as a
+`hours: [{dow, open_min, close_min}, ...]` array (aggregated from `store_hours` in SQL).
+The client files that array into its own local `store_hours` table, but that's a client
+storage detail — to the server it's one download.
+
+- **No `since`** → every store the client should hold (full pull).
+- **`?since=<iso>`** → only rows with `updated_at > since` (`updated_at` is bumped by the
+  `stores_set_updated_at` trigger on any real change; see `common/schema.sql`).
+- **Hidden rows are INCLUDED** (unlike `GET /stores`, which filters `hidden`). Each row
+  carries `is_hidden` (aliased from `stores.hidden`). A just-hidden store's `updated_at`
+  bumped, so it shows up in the delta with `is_hidden: true` — the client treats that as
+  "delete locally." Never filter hidden out of *this* endpoint.
+- **Cursor = `server_time`**, returned top-level. The client passes it back as the next
+  `since`. We read the rows and `now()` in **one transaction**, so `server_time` is the
+  snapshot boundary — anything committed after it carries `updated_at > server_time` and
+  is caught next call (no skew gap, no double-send). The client must use `server_time`,
+  **not** its own clock and **not** the page's max `updated_at`.
+
+Response: `{ "stores": [ {..., "is_hidden": bool, "updated_at": iso, "hours": [...] } ],
+"server_time": iso }`. Columns mirror the `DETAIL` set so a synced row == a
+`/stores/{license}` row. **DB prerequisite:** `stores.hidden` + `stores.updated_at`
+(+ trigger) must be applied — see `common/schema.sql` / `submissions_pipeline_setup.sql`.
 
 ## The image catalog scan path (`POST /products/scan`)
 

@@ -78,6 +78,20 @@ paths:
       responses:
         "200":
           description: products + category facets for one store
+  # Offline-first delta feed. Optional ?since cursor (declared so the gateway passes it
+  # through; like the /stores filters, query params don't strictly need declaring, but
+  # the path itself does). Cursor = server_time from the prior response.
+  /sync/stores:
+    get:
+      operationId: syncStores
+      parameters:
+        - in: query
+          name: since
+          type: string
+          required: false
+      responses:
+        "200":
+          description: full or delta store feed (hidden rows included, hours nested)
   /submissions:
     post:
       operationId: createSubmission
