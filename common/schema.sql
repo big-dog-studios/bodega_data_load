@@ -49,6 +49,33 @@ CREATE INDEX IF NOT EXISTS stores_join_key_ix ON stores (join_key);
 -- no-op on them). Survey-only flag; nullable to match the live schema.
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS has_wic boolean DEFAULT false;
 
+-- updated_at: "last materially changed" stamp. On INSERT it equals ingested_at (both
+-- DEFAULT now(), which is constant within a txn). A BEFORE UPDATE trigger bumps it to
+-- now() whenever a real content change happens (a modify, or hide_store/delete) — the
+-- change test ignores ingested_at + updated_at themselves, so a no-op spine refresh that
+-- only re-stamps ingested_at does NOT count as a modification.
+-- Added without a default first so existing rows are NULL and can be backfilled from
+-- ingested_at; the default is set afterward for future inserts. Idempotent on re-run.
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+UPDATE stores SET updated_at = ingested_at WHERE updated_at IS NULL;  -- one-time: only newly-added rows are NULL
+ALTER TABLE stores ALTER COLUMN updated_at SET DEFAULT now();
+
+CREATE OR REPLACE FUNCTION stores_set_updated_at() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF (to_jsonb(NEW) - 'updated_at' - 'ingested_at')
+     IS DISTINCT FROM
+     (to_jsonb(OLD) - 'updated_at' - 'ingested_at') THEN
+    NEW.updated_at := now();
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS stores_set_updated_at ON stores;
+CREATE TRIGGER stores_set_updated_at
+  BEFORE UPDATE ON stores
+  FOR EACH ROW EXECUTE FUNCTION stores_set_updated_at();
+
 -- Structured opening hours, normalized one row per (store, weekday, open window).
 -- Powers the `is_open` filter on GET /stores. dow is 0=Monday (the survey picker's
 -- convention, == Python's weekday()); open_min/close_min are minutes from midnight in
