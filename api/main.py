@@ -310,10 +310,10 @@ def sync_stores(
 # ---------------------------------------------------------------------------
 
 INSERT = sqlalchemy.text("""
-    INSERT INTO submissions (license_number, mode, name, house, street, city, zip, geom,
+    INSERT INTO submissions (license_number, mode, name, house, street, city, county, zip, geom,
                              prepared_food, lottery, alcohol, tobacco, snap,
                              atm, cat, wic, hours, receipt, photos, user_id)
-    VALUES (:license_number, :mode, :name, :house, :street, :city, :zip,
+    VALUES (:license_number, :mode, :name, :house, :street, :city, :county, :zip,
             CASE WHEN CAST(:lat AS float8) IS NULL OR CAST(:lon AS float8) IS NULL THEN NULL
                  ELSE ST_SetSRID(ST_MakePoint(CAST(:lon AS float8), CAST(:lat AS float8)), 4326) END,
             :prepared_food, :lottery, :alcohol, :tobacco, :snap,
@@ -348,6 +348,7 @@ def create_submission(
     house: Optional[str] = Form(None),    # surveyor-provided address parts (mirror the spine)
     street: Optional[str] = Form(None),
     city: Optional[str] = Form(None),
+    county: Optional[str] = Form(None),  # borough/county (BRONX, KINGS, NEW YORK, QUEENS, RICHMOND)
     zip: Optional[str] = Form(None),
     lat: Optional[float] = Form(None),    # client-supplied; geom built only if lat AND lon present
     lon: Optional[float] = Form(None),
@@ -391,6 +392,7 @@ def create_submission(
         "house": house,
         "street": street,
         "city": city,
+        "county": county,
         "zip": zip,
         "lat": lat,
         "lon": lon,

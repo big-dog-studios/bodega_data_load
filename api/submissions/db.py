@@ -190,14 +190,14 @@ def pending(conn, mode: str) -> list[dict]:
     geom split to lat/lng; structured address + photos/receipt carried."""
     rows = conn.execute(
         "SELECT id, license_number, user_id, name, "
-        "       house, street, city, zip, hours, "
+        "       house, street, city, county, zip, hours, "
         "       prepared_food, lottery, alcohol, tobacco, atm, cat, snap, wic, "
         "       photos, receipt, ST_Y(geom) AS lat, ST_X(geom) AS lng "
         "FROM submissions WHERE mode = %s AND status = 'pending' "
         "ORDER BY submitted_at",
         (mode,),
     ).fetchall()
-    cols = ["id","license_number","user_id","name","house","street","city","zip","hours",
+    cols = ["id","license_number","user_id","name","house","street","city","county","zip","hours",
             "prepared_food","lottery","alcohol","tobacco","atm","cat","snap","wic",
             "photos","receipt","lat","lng"]
     return [dict(zip(cols, r)) for r in rows]
@@ -225,7 +225,7 @@ def enqueue_images(conn, submission_id, license_number, photos, receipt):
 
 
 # ---------- writes (stores) ----------
-def create_store(conn, license_number, name, house, street, city, zip_, lat, lng,
+def create_store(conn, license_number, name, house, street, city, county, zip_, lat, lng,
                  hours=None, flags=None):
     """Create a store. license_number is the GUID assigned in the submission (new
     stores have no real license). dba = UPPER(name); join_key = UPPER('house street zip').
@@ -243,13 +243,13 @@ def create_store(conn, license_number, name, house, street, city, zip_, lat, lng
     join_key = " ".join(p for p in (house, street, zip_) if p).upper() or None
     conn.execute(
         "INSERT INTO stores (license_number, source, dba, display_name, "
-        "  house, street, city, zip, geom, join_key, hours_summary, "
+        "  house, street, city, county, zip, geom, join_key, hours_summary, "
         "  has_prepared_food, has_lottery, has_tobacco, has_snap, has_atm, has_cat, has_wic, alc_class) "
-        "VALUES (%s, 'submission', %s, %s, %s, %s, %s, %s, "
+        "VALUES (%s, 'submission', %s, %s, %s, %s, %s, %s, %s, "
         "        ST_SetSRID(ST_MakePoint(%s,%s),4326), %s, %s, "
         "        %s, %s, %s, %s, %s, %s, %s, %s) "
         "ON CONFLICT (license_number) DO NOTHING",
-        (license_number, dba, name, house, street, city, zip_, lng, lat, join_key,
+        (license_number, dba, name, house, street, city, county, zip_, lng, lat, join_key,
          format_hours(hours),
          yn("prepared_food"), yn("lottery"), yn("tobacco"), yn("snap"),
          yn("atm"), yn("cat"), yn("wic"), 71 if flags.get("alcohol") else None))

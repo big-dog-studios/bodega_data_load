@@ -155,7 +155,7 @@ Form fields (all optional except `mode`):
 | `license_number` | text | required when `mode="report"` or `"delete"`; ignored & minted (uuid) when `mode="new"` |
 | `user_id` | text | authenticated submitter id — the corroboration unit (distinct ids = independent reports). Omit for anonymous; anonymous never corroborates |
 | `name` | text | surveyor-provided store name (esp. for `mode="new"`) |
-| `house` / `street` / `city` / `zip` | text | address parts (mirror the spine; replaced the old free-text `address`) |
+| `house` / `street` / `city` / `county` / `zip` | text | address parts (mirror the spine; replaced the old free-text `address`). `county` is the borough (BRONX/KINGS/NEW YORK/QUEENS/RICHMOND); a `mode="new"` store is created with the submitted `county` |
 | `lat` / `lon` | float | client-supplied; `geom` POINT built only when **both** are present |
 | `prepared_food` / `lottery` / `alcohol` / `tobacco` / `snap` | text | `"yes"`/`"no"` → bool |
 | `atm` / `cat` / `wic` | text | `"yes"`/`"no"` → bool |

@@ -53,7 +53,7 @@ def process_new(conn):
         # 2. Google Places confirms a real store -> create verified
         if places.find_store(s["name"] or "", s["lat"], s["lng"]):
             db.create_store(conn, s["license_number"], s["name"], s["house"], s["street"],
-                            s["city"], s["zip"], s["lat"], s["lng"], s.get("hours"), s)
+                            s["city"], s["county"], s["zip"], s["lat"], s["lng"], s.get("hours"), s)
             _accept(conn, [s], "places_confirmed")
             used.add(s["id"]); continue
         # 3. not in Places -> corroboration from distinct users
@@ -68,7 +68,7 @@ def process_new(conn):
         users = {g["user_id"] for g in group if g["user_id"]}
         if len(users) >= NEW_MIN_USERS:
             db.create_store(conn, s["license_number"], s["name"], s["house"], s["street"],
-                            s["city"], s["zip"], s["lat"], s["lng"], s.get("hours"), s)
+                            s["city"], s["county"], s["zip"], s["lat"], s["lng"], s.get("hours"), s)
             _accept(conn, group, "user_corroborated")
             used.update(g["id"] for g in group)
         # else: leave pending until more reports arrive

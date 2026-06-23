@@ -167,6 +167,7 @@ ALTER TABLE submissions DROP COLUMN IF EXISTS submitted_ip;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS house        text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS street       text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS city         text;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS county       text;   -- client now sends borough/county alongside city/zip
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS zip          text;
 -- Drop-and-recreate so the allowed-values list actually updates on live DBs (a plain
 -- ADD CONSTRAINT no-ops when one already exists, leaving the old new/report-only check).
