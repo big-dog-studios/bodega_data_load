@@ -56,6 +56,25 @@ paths:
       responses:
         "200":
           description: light pins in the viewport
+  # Nearest stores to a point (closest first), with the same flag filters as /stores.
+  # Declared BEFORE /stores/{license_number} so this literal path wins the route match
+  # (otherwise "nearest" would bind as a license_number). lat/lon required; limit + the
+  # flag filters are passed through undeclared like the /stores query params.
+  /stores/nearest:
+    get:
+      operationId: nearestStores
+      parameters:
+        - in: query
+          name: lat
+          type: number
+          required: true
+        - in: query
+          name: lon
+          type: number
+          required: true
+      responses:
+        "200":
+          description: nearest stores to the point (with distance_m), closest first
   /stores/{license_number}:
     get:
       operationId: getStore

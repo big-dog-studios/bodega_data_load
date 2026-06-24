@@ -59,7 +59,7 @@ PIN_LIMIT = 2000
 # Boolean flag columns the frontend can badge pins with and filter on.
 FLAG_COLUMNS = (
     "has_snap", "has_tobacco", "has_lottery", "has_quick_draw", "has_prepared_food",
-    "has_cat", "has_atm", "has_wic", "takeout", "delivery",
+    "has_cat", "has_atm", "has_wic", "has_plant_based", "takeout", "delivery",
 )
 
 # Light pins inside the viewport. `&&` uses the GiST index and is exact for
@@ -71,7 +71,7 @@ FLAG_COLUMNS = (
 PINS_TEMPLATE = """
     SELECT license_number, dba, ST_Y(geom) AS lat, ST_X(geom) AS lon,
            has_snap, has_tobacco, has_lottery, has_quick_draw, has_prepared_food, has_wic,
-           (alc_class IS NOT NULL) AS has_alcohol
+           has_plant_based, (alc_class IS NOT NULL) AS has_alcohol
     FROM public.stores
     WHERE geom && ST_MakeEnvelope(:west, :south, :east, :north, 4326)
       AND NOT hidden
@@ -81,13 +81,31 @@ PINS_TEMPLATE = """
     LIMIT :lim;
 """
 
+# Nearest stores to a point, closest first. The KNN `<->` operator is index-backed by
+# the GiST geom index (planar degrees — fine for ranking neighbors at city scale); the
+# returned `distance_m` is the true geodesic distance via ::geography. Same flag filters
+# as /stores ride along ({filters} from the FLAG_COLUMNS allowlist, values bound).
+NEAREST_TEMPLATE = """
+    SELECT license_number, dba, ST_Y(geom) AS lat, ST_X(geom) AS lon,
+           has_snap, has_tobacco, has_lottery, has_quick_draw, has_prepared_food, has_wic,
+           has_plant_based, (alc_class IS NOT NULL) AS has_alcohol,
+           ST_Distance(geom::geography,
+                       ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography) AS distance_m
+    FROM public.stores
+    WHERE geom IS NOT NULL
+      AND NOT hidden
+      {filters}
+    ORDER BY geom <-> ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)
+    LIMIT :lim;
+"""
+
 # Full record off the single row — flags are denormalized booleans, so no join
 # for them. LEFT JOIN the seeded SLA lookup only to label alc_class.
 DETAIL = sqlalchemy.text("""
     SELECT s.license_number, s.dba, s.entity,
            s.house, s.street, s.city, s.county, s.zip, s.estab_type,
            s.has_snap, s.has_tobacco, s.has_lottery, s.has_quick_draw,
-           s.has_prepared_food, s.has_atm, s.has_cat, s.cat_name, s.has_wic,
+           s.has_prepared_food, s.has_atm, s.has_cat, s.cat_name, s.has_wic, s.has_plant_based,
            s.alc_class, lc.class_description AS alc_description, lc.product AS alc_product,
            s.place_id, s.display_name, s.phone, s.rating, s.user_rating_count,
            s.accepts_credit_cards, s.accepts_debit_cards, s.accepts_cash_only,
@@ -137,7 +155,7 @@ SYNC_TEMPLATE = """
     SELECT s.license_number, s.dba, s.entity,
            s.house, s.street, s.city, s.county, s.zip, s.estab_type,
            s.has_snap, s.has_tobacco, s.has_lottery, s.has_quick_draw,
-           s.has_prepared_food, s.has_atm, s.has_cat, s.cat_name, s.has_wic,
+           s.has_prepared_food, s.has_atm, s.has_cat, s.cat_name, s.has_wic, s.has_plant_based,
            s.alc_class, lc.class_description AS alc_description, lc.product AS alc_product,
            s.place_id, s.display_name, s.phone, s.rating, s.user_rating_count,
            s.accepts_credit_cards, s.accepts_debit_cards, s.accepts_cash_only,
@@ -178,42 +196,17 @@ def _parse_bbox(bbox: str):
     return west, south, east, north
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+def _flag_filters(params, flag_args, has_alcohol, has_products, is_open):
+    """Build the tri-state flag WHERE clauses shared by /stores and /stores/nearest.
 
-
-@app.get("/stores")
-def list_stores(
-    bbox: str = Query(..., description="Viewport: west,south,east,north (minLon,minLat,maxLon,maxLat)"),
-    has_snap: Optional[bool] = Query(None, description="Filter: true = only SNAP, false = only non-SNAP, omit = no filter"),
-    has_tobacco: Optional[bool] = Query(None),
-    has_lottery: Optional[bool] = Query(None),
-    has_quick_draw: Optional[bool] = Query(None),
-    has_prepared_food: Optional[bool] = Query(None),
-    has_cat: Optional[bool] = Query(None, description="Filter: bodega cat present"),
-    has_atm: Optional[bool] = Query(None, description="Filter: ATM on premises"),
-    has_wic: Optional[bool] = Query(None, description="Filter: accepts WIC"),
-    takeout: Optional[bool] = Query(None, description="Filter: offers takeout"),
-    delivery: Optional[bool] = Query(None, description="Filter: offers delivery"),
-    has_alcohol: Optional[bool] = Query(None, description="Filter on alc_class presence (true = has a license, false = none)"),
-    has_products: Optional[bool] = Query(None, description="Filter: true = only stores with catalog items, false = only stores with none"),
-    is_open: Optional[bool] = Query(None, description="Filter on current open status (store hours are US/Eastern): true = open right now, false = not open right now"),
-):
-    west, south, east, north = _parse_bbox(bbox)
-    params = {"west": west, "south": south, "east": east, "north": north, "lim": PIN_LIMIT}
-
-    # Tri-state flag filters: None = no filter, True/False = equality on the column.
-    # Column names come from the FLAG_COLUMNS allowlist, never user input.
+    Appends `AND ...` fragments (and binds their values into `params`) for each set
+    filter, and returns the clause list. Column names come from FLAG_COLUMNS (an
+    allowlist), never user input, so there's no injection surface. The `stores.`-
+    qualified subqueries below work for both callers (both query `public.stores`
+    unaliased)."""
     clauses = []
-    flag_args = {
-        "has_snap": has_snap, "has_tobacco": has_tobacco, "has_lottery": has_lottery,
-        "has_quick_draw": has_quick_draw, "has_prepared_food": has_prepared_food,
-        "has_cat": has_cat, "has_atm": has_atm, "has_wic": has_wic,
-        "takeout": takeout, "delivery": delivery,
-    }
     for col in FLAG_COLUMNS:
-        val = flag_args[col]
+        val = flag_args.get(col)
         if val is not None:
             clauses.append(f"AND {col} = :{col}")
             params[col] = val
@@ -244,8 +237,81 @@ def list_stores(
             "WHERE h.license_number = stores.license_number "
             "AND h.dow = :now_dow AND h.open_min <= :now_min AND h.close_min > :now_min)"
         )
+    return clauses
 
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/stores")
+def list_stores(
+    bbox: str = Query(..., description="Viewport: west,south,east,north (minLon,minLat,maxLon,maxLat)"),
+    has_snap: Optional[bool] = Query(None, description="Filter: true = only SNAP, false = only non-SNAP, omit = no filter"),
+    has_tobacco: Optional[bool] = Query(None),
+    has_lottery: Optional[bool] = Query(None),
+    has_quick_draw: Optional[bool] = Query(None),
+    has_prepared_food: Optional[bool] = Query(None),
+    has_cat: Optional[bool] = Query(None, description="Filter: bodega cat present"),
+    has_atm: Optional[bool] = Query(None, description="Filter: ATM on premises"),
+    has_wic: Optional[bool] = Query(None, description="Filter: accepts WIC"),
+    has_plant_based: Optional[bool] = Query(None, description="Filter: stocks plant-based/vegan products"),
+    takeout: Optional[bool] = Query(None, description="Filter: offers takeout"),
+    delivery: Optional[bool] = Query(None, description="Filter: offers delivery"),
+    has_alcohol: Optional[bool] = Query(None, description="Filter on alc_class presence (true = has a license, false = none)"),
+    has_products: Optional[bool] = Query(None, description="Filter: true = only stores with catalog items, false = only stores with none"),
+    is_open: Optional[bool] = Query(None, description="Filter on current open status (store hours are US/Eastern): true = open right now, false = not open right now"),
+):
+    west, south, east, north = _parse_bbox(bbox)
+    params = {"west": west, "south": south, "east": east, "north": north, "lim": PIN_LIMIT}
+
+    flag_args = {
+        "has_snap": has_snap, "has_tobacco": has_tobacco, "has_lottery": has_lottery,
+        "has_quick_draw": has_quick_draw, "has_prepared_food": has_prepared_food,
+        "has_cat": has_cat, "has_atm": has_atm, "has_wic": has_wic,
+        "has_plant_based": has_plant_based, "takeout": takeout, "delivery": delivery,
+    }
+    clauses = _flag_filters(params, flag_args, has_alcohol, has_products, is_open)
     sql = sqlalchemy.text(PINS_TEMPLATE.format(filters="\n      ".join(clauses)))
+    with engine.connect() as cx:
+        rows = cx.execute(sql, params).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/stores/nearest")
+def nearest_stores(
+    lat: float = Query(..., ge=-90, le=90, description="Latitude of the search point"),
+    lon: float = Query(..., ge=-180, le=180, description="Longitude of the search point"),
+    limit: int = Query(1, ge=1, le=100, description="How many nearest stores to return (closest first)"),
+    has_snap: Optional[bool] = Query(None),
+    has_tobacco: Optional[bool] = Query(None),
+    has_lottery: Optional[bool] = Query(None),
+    has_quick_draw: Optional[bool] = Query(None),
+    has_prepared_food: Optional[bool] = Query(None),
+    has_cat: Optional[bool] = Query(None),
+    has_atm: Optional[bool] = Query(None),
+    has_wic: Optional[bool] = Query(None),
+    has_plant_based: Optional[bool] = Query(None),
+    takeout: Optional[bool] = Query(None),
+    delivery: Optional[bool] = Query(None),
+    has_alcohol: Optional[bool] = Query(None, description="Filter on alc_class presence"),
+    has_products: Optional[bool] = Query(None, description="Filter: only stores with/without catalog items"),
+    is_open: Optional[bool] = Query(None, description="Filter on current open status (US/Eastern)"),
+):
+    """Nearest stores to (lat, lon), closest first, with the same flag filters as
+    /stores. Each row carries `distance_m` (true geodesic metres). Hidden stores are
+    excluded (like /stores). Declared BEFORE /stores/{license_number} so the literal
+    path wins the route match."""
+    params = {"lat": lat, "lon": lon, "lim": limit}
+    flag_args = {
+        "has_snap": has_snap, "has_tobacco": has_tobacco, "has_lottery": has_lottery,
+        "has_quick_draw": has_quick_draw, "has_prepared_food": has_prepared_food,
+        "has_cat": has_cat, "has_atm": has_atm, "has_wic": has_wic,
+        "has_plant_based": has_plant_based, "takeout": takeout, "delivery": delivery,
+    }
+    clauses = _flag_filters(params, flag_args, has_alcohol, has_products, is_open)
+    sql = sqlalchemy.text(NEAREST_TEMPLATE.format(filters="\n      ".join(clauses)))
     with engine.connect() as cx:
         rows = cx.execute(sql, params).mappings().all()
     return [dict(r) for r in rows]
@@ -312,12 +378,12 @@ def sync_stores(
 INSERT = sqlalchemy.text("""
     INSERT INTO submissions (license_number, mode, name, house, street, city, county, zip, geom,
                              prepared_food, lottery, alcohol, tobacco, snap,
-                             atm, cat, wic, hours, receipt, photos, user_id)
+                             atm, cat, wic, plant_based, hours, receipt, photos, user_id)
     VALUES (:license_number, :mode, :name, :house, :street, :city, :county, :zip,
             CASE WHEN CAST(:lat AS float8) IS NULL OR CAST(:lon AS float8) IS NULL THEN NULL
                  ELSE ST_SetSRID(ST_MakePoint(CAST(:lon AS float8), CAST(:lat AS float8)), 4326) END,
             :prepared_food, :lottery, :alcohol, :tobacco, :snap,
-            :atm, :cat, :wic, :hours, :receipt, :photos, :user_id)
+            :atm, :cat, :wic, :plant_based, :hours, :receipt, :photos, :user_id)
     RETURNING id, license_number, submitted_at;
 """)
 
@@ -360,6 +426,7 @@ def create_submission(
     atm: Optional[str] = Form(None),  # "yes"/"no" — coerced to bool below
     cat: Optional[str] = Form(None),  # bodega cat present?
     wic: Optional[str] = Form(None),  # accepts WIC — "yes"/"no" — coerced to bool below
+    plant_based: Optional[str] = Form(None),  # stocks plant-based/vegan — "yes"/"no" — coerced to bool below
     hours: Optional[str] = Form(None),
     receipt: Optional[UploadFile] = File(None),  # one receipt photo, optional
     photos: List[UploadFile] = File(default=[]),  # zero or more store photos
@@ -404,6 +471,7 @@ def create_submission(
         "atm": _yn(atm),
         "cat": _yn(cat),
         "wic": _yn(wic),
+        "plant_based": _yn(plant_based),
         "hours": hours,
         "receipt": receipt_path,
         "photos": photo_paths,

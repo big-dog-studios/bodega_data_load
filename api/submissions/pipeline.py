@@ -78,7 +78,7 @@ def process_new(conn):
 def _claims(s):
     """Yield (field, value) pairs a report proposes. address excluded (stores uses
     structured house/street/city/zip). alcohol -> alc_class, handled in apply_update."""
-    for f in ("hours", "name", "prepared_food", "lottery", "alcohol", "tobacco", "atm", "cat", "snap", "wic"):
+    for f in ("hours", "name", "prepared_food", "lottery", "alcohol", "tobacco", "atm", "cat", "snap", "wic", "plant_based"):
         if s.get(f) is not None:
             yield f, s[f]
 

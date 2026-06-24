@@ -9,6 +9,7 @@ here (no cross-folder import).
 | Method | Path | Purpose |
 |---|---|---|
 | GET  | `/stores?bbox=W,S,E,N` | light pins in the viewport (+ flag filters, `is_open`) |
+| GET  | `/stores/nearest?lat=&lon=&limit=` | nearest stores to a point (closest first, `distance_m`; same flag filters) |
 | GET  | `/stores/{license_number}` | one full record |
 | GET  | `/stores/{license_number}/products` | catalog + category facets for one store |
 | GET  | `/sync/stores` | offline-first delta feed (`?since=<iso>`); hidden rows included, hours nested, cursor = `server_time` |
@@ -158,7 +159,7 @@ Form fields (all optional except `mode`):
 | `house` / `street` / `city` / `county` / `zip` | text | address parts (mirror the spine; replaced the old free-text `address`). `county` is the borough (BRONX/KINGS/NEW YORK/QUEENS/RICHMOND); a `mode="new"` store is created with the submitted `county` |
 | `lat` / `lon` | float | client-supplied; `geom` POINT built only when **both** are present |
 | `prepared_food` / `lottery` / `alcohol` / `tobacco` / `snap` | text | `"yes"`/`"no"` → bool |
-| `atm` / `cat` / `wic` | text | `"yes"`/`"no"` → bool |
+| `atm` / `cat` / `wic` / `plant_based` | text | `"yes"`/`"no"` → bool |
 | `hours` | text | free text |
 | `receipt` | file | one receipt photo |
 | `photos` | file (repeatable) | zero or more store photos |

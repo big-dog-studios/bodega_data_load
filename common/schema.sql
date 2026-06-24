@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS stores (
   cat_name          text,                            -- the cat's name, if any (free text)
   has_atm           boolean NOT NULL DEFAULT false,  -- ATM on premises (survey-only)
   has_wic           boolean DEFAULT false,           -- accepts WIC (survey-only)
+  has_plant_based   boolean NOT NULL DEFAULT false,  -- stocks plant-based/vegan products (survey-only)
   -- Google Places enrichment (set by the places loader; all nullable until enriched).
   place_id             text,                          -- Google Places resource id
   display_name         text,                          -- Places-formatted name
@@ -48,6 +49,8 @@ CREATE INDEX IF NOT EXISTS stores_join_key_ix ON stores (join_key);
 -- Migration for DBs created before has_wic existed (CREATE TABLE IF NOT EXISTS is a
 -- no-op on them). Survey-only flag; nullable to match the live schema.
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS has_wic boolean DEFAULT false;
+-- Migration for DBs created before has_plant_based existed. Survey-only flag.
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS has_plant_based boolean NOT NULL DEFAULT false;
 
 -- updated_at: "last materially changed" stamp. On INSERT it equals ingested_at (both
 -- DEFAULT now(), which is constant within a txn). A BEFORE UPDATE trigger bumps it to
@@ -143,6 +146,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   atm             boolean,              -- ATM on premises (survey-only; no government feed)
   cat             boolean,              -- bodega cat present (survey-only)
   wic             boolean,              -- accepts WIC (vs stores.has_wic)
+  plant_based     boolean,              -- stocks plant-based/vegan products (vs stores.has_plant_based)
   hours           text,
   receipt         text,                 -- GCS object path, or NULL — bytes live in the bucket
   photos          text[] NOT NULL DEFAULT '{}',  -- GCS object paths
@@ -161,6 +165,7 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS address text;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS geom    geometry(Point, 4326);
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS snap         boolean;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS wic          boolean;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS plant_based  boolean;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS user_id      text;
 -- submitted_ip retired: corroboration is by distinct user_id now, IP is not stored.
 ALTER TABLE submissions DROP COLUMN IF EXISTS submitted_ip;
