@@ -110,6 +110,7 @@ DETAIL = sqlalchemy.text("""
            s.place_id, s.display_name, s.phone, s.rating, s.user_rating_count,
            s.accepts_credit_cards, s.accepts_debit_cards, s.accepts_cash_only,
            s.accepts_nfc, s.takeout, s.delivery, s.hours_summary,
+           s.storefront_photos,
            ST_Y(s.geom) AS lat, ST_X(s.geom) AS lon
     FROM public.stores s
     LEFT JOIN sla_license_codes lc ON lc.class_code = s.alc_class
@@ -161,6 +162,7 @@ SYNC_TEMPLATE = """
            s.accepts_credit_cards, s.accepts_debit_cards, s.accepts_cash_only,
            s.accepts_nfc, s.takeout, s.delivery, s.hours_summary,
            s.hidden AS is_hidden, s.updated_at,
+           s.storefront_photos,
            ST_Y(s.geom) AS lat, ST_X(s.geom) AS lon,
            COALESCE((
              SELECT json_agg(json_build_object(
