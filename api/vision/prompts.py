@@ -3,12 +3,13 @@
 # Stage 0 — is this even a usable image?
 IMAGE_GATE = """You are validating an uploaded image for a store-products database.
 Classify it as exactly one of:
-  - "receipt": a store/purchase receipt or itemized bill
-  - "shelf":   a photo of store shelves, coolers, racks, or products for sale
-  - "other":   anything else (selfie, meme, screenshot, landscape, document, blurry/unusable, etc.)
+  - "receipt":    a store/purchase receipt or itemized bill
+  - "shelf":      a photo of store shelves, coolers, racks, or products for sale (INSIDE the store)
+  - "storefront": the OUTSIDE of the store — its exterior, awning, sign, or entrance seen from the street
+  - "other":      anything else (selfie, meme, screenshot, landscape, document, blurry/unusable, etc.)
 
 Respond with ONLY a JSON object, no prose, no markdown:
-{"kind": "receipt|shelf|other", "confidence": 0.0-1.0, "reason": "short"}"""
+{"kind": "receipt|shelf|storefront|other", "confidence": 0.0-1.0, "reason": "short"}"""
 
 
 # Stage 0, targeted variant — the uploader already told us the type, so we confirm

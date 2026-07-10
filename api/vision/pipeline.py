@@ -128,11 +128,20 @@ def stage3_dedup(conn, license_number, subtype_id, display_name):
 
 
 # ---------- orchestration ----------
-def process(image_bytes, license_number, dsn, media_type="image/jpeg", kind=None):
-    """`kind` ('receipt'|'shelf') is the uploader's own classification, when known.
-    We don't trust it — we verify ONLY that claim (stage0_verify) and reject a mismatch
-    or garbage; we never re-bucket it as the other type. With no hint, fall back to the
-    open receipt/shelf/other gate (stage0_gate)."""
+def process(image_bytes, license_number, dsn, media_type="image/jpeg", kind=None, photo_ref=None):
+    """Classify one image and act on it.
+
+    `kind` is the uploader's own classification, when known:
+      - 'receipt' | 'shelf'  -> a specific claim. We don't trust it: verify ONLY that
+        claim (stage0_verify) and reject a mismatch or garbage; never re-bucket.
+      - 'general'            -> "a store photo, but I'm not saying which". The open gate
+        decides shelf vs storefront; a receipt or unusable image is rejected.
+      - None                 -> fully open gate (receipt | shelf | storefront | other).
+
+    A storefront is not a catalog image — there are no products to extract. We attach it
+    to the store instead (stores.storefront_photos) and return. `photo_ref` is the durable
+    GCS path to record; without it (a raw upload we didn't persist) there's nothing to
+    store, so the storefront is recognized but not attached."""
     res = Result()
 
     if kind in ("receipt", "shelf"):
@@ -141,12 +150,29 @@ def process(image_bytes, license_number, dsn, media_type="image/jpeg", kind=None
         if not ok or gconf < GATE_MIN:
             res.rejected_reason = f"does not look like a {kind} (conf={gconf:.2f})"
             return res
+    elif kind == "general":
+        kind, gconf = stage0_gate(image_bytes, media_type)
+        res.kind = kind
+        if kind not in ("shelf", "storefront") or gconf < GATE_MIN:
+            res.rejected_reason = f"not a shelf/storefront (kind={kind}, conf={gconf:.2f})"
+            return res
     else:
         kind, gconf = stage0_gate(image_bytes, media_type)
         res.kind = kind
         if kind == "other" or gconf < GATE_MIN:
-            res.rejected_reason = f"not a receipt/shelf (kind={kind}, conf={gconf:.2f})"
+            res.rejected_reason = f"unusable image (kind={kind}, conf={gconf:.2f})"
             return res
+
+    # Storefront: no catalog to extract — attach the exterior photo to the store.
+    if kind == "storefront":
+        if photo_ref:
+            with db.connect(dsn) as conn:
+                db.add_storefront_photo(conn, license_number, photo_ref)
+                conn.commit()
+            res.applied.append({"action": "storefront_photo", "url": photo_ref})
+        else:
+            res.rejected_reason = "storefront recognized but no durable url to attach"
+        return res
 
     items = stage1_extract(image_bytes, media_type, kind, dsn)
     sid_map = db.subtype_id_map(dsn)

@@ -517,7 +517,7 @@ def scan_image(
     license_number: str = Form(..., description="store to attach detected products to"),
     gcs_path: Optional[str] = Form(None, description="GCS object path or gs:// URI of an image already in a bucket (automated path)"),
     image: Optional[UploadFile] = File(None, description="alternative: upload a receipt/shelf photo directly"),
-    kind: Optional[str] = Form(None, description="uploader's classification: 'receipt' or 'shelf'/'product'. Verified (not trusted); omit to let the model classify"),
+    kind: Optional[str] = Form(None, description="uploader's classification: 'receipt' or 'general' (shelf or storefront). Verified (not trusted); omit to let the model classify"),
 ):
     """Classify one receipt/shelf image into products for `license_number`.
 
@@ -541,13 +541,12 @@ def scan_image(
         raise HTTPException(400, "license_number is malformed")
     if (gcs_path is None) == (image is None):
         raise HTTPException(400, "provide exactly one of `gcs_path` or `image`")
-    # Normalize the uploader's claim to the pipeline's vocabulary. 'product(s)' is a
-    # friendlier alias for 'shelf'. Unknown values -> None (fall back to open gate).
+    # The uploader may only claim 'receipt' or 'general' (a store photo — shelf or
+    # storefront, the gate decides). Unknown values -> 400.
     if kind is not None:
-        kind = {"receipt": "receipt", "shelf": "shelf",
-                "product": "shelf", "products": "shelf"}.get(kind.strip().lower())
+        kind = {"receipt": "receipt", "general": "general"}.get(kind.strip().lower())
         if kind is None:
-            raise HTTPException(400, "kind must be 'receipt' or 'shelf'/'product'")
+            raise HTTPException(400, "kind must be 'receipt' or 'general'")
     with engine.connect() as cx:
         if cx.execute(_STORE_EXISTS, {"lid": license_number}).first() is None:
             raise HTTPException(404, "unknown license_number (not in stores spine)")
@@ -566,12 +565,15 @@ def scan_image(
     if not image_bytes:
         raise HTTPException(400, "empty image")
 
-    res = pipeline.process(image_bytes, license_number, _socket_dsn(), media_type, kind=kind)
+    # photo_ref is the durable path we can record for a storefront image — only the
+    # GCS-backed path has one (a raw upload's bytes aren't persisted here).
+    res = pipeline.process(image_bytes, license_number, _socket_dsn(), media_type,
+                           kind=kind, photo_ref=gcs_path)
     return {
         "license_number": license_number,
-        "kind": res.kind,                    # receipt | shelf | other
+        "kind": res.kind,                    # receipt | shelf | storefront | other
         "rejected_reason": res.rejected_reason,  # set iff the image was gated out
-        "applied": res.applied,              # inserts / price updates that landed
+        "applied": res.applied,              # inserts / price updates / storefront attach
         "review": res.review,                # items punted to manual review
     }
 

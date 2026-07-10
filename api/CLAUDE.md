@@ -48,16 +48,27 @@ Response: `{ "stores": [ {..., "is_hidden": bool, "updated_at": iso, "hours": [.
 A `multipart/form-data` request with `license_number` (text) + `image` (file) →
 the **`vision/` package** (`pipeline.process`) gates the image, extracts items
 with Claude vision, dedups against the store's existing products, then inserts new
-products / updates known prices. Response echoes `kind` (receipt|shelf|other),
+products / updates known prices. Response echoes `kind` (receipt|shelf|storefront|other),
 `rejected_reason` (set iff gated out), and the `applied` / `review` item lists.
 
-Optional `kind` form field (`'receipt'` or `'shelf'`/`'product'`) carries the
-uploader's own classification. We **don't trust it** — when present, stage 0 runs a
-*targeted* check (`stage0_verify`) that confirms ONLY that one claim and rejects a
-mismatch or garbage, never re-bucketing into the other type (one check, never both) —
-which also skips the open `stage0_gate` classification call. Omit it and stage 0 falls
-back to the open receipt/shelf/other gate. (The submissions `image_queue.kind_hint` is
-exactly this value, for when a queue-drainer feeds scans automatically.)
+Optional `kind` form field carries the uploader's own classification (only `'receipt'`
+or `'general'` — nothing else); we **don't trust it**:
+- `'receipt'` → a *specific* claim. Stage 0 runs a *targeted* check (`stage0_verify`)
+  that confirms ONLY that it's a receipt and rejects a mismatch or garbage, never
+  re-bucketing, skipping the open `stage0_gate`.
+- `'general'` → "a store photo, but not saying which". The open `stage0_gate` decides
+  **shelf vs storefront**; a receipt or unusable image is rejected. This is the value
+  the submissions queue-drainer sends (survey `photos[]` → `kind_hint='general'`).
+- omitted → the fully open gate (receipt | shelf | storefront | other).
+
+**Storefront images have no catalog to extract.** When stage 0 lands on `storefront`
+(reachable via `general` or the open gate), the pipeline attaches the photo to the store
+instead of running extraction: `db.add_storefront_photo` appends the durable GCS path to
+`stores.storefront_photos` (a `text[]` mirroring `submissions.photos`, deduped; the
+UPDATE bumps `updated_at` so it rides the next `/sync/stores` delta). The durable path is
+`photo_ref` — only the `gcs_path` input has one; a raw `image` upload isn't persisted, so
+a storefront from a direct upload is recognized but not attached. `image_queue.kind_hint`
+is exactly this `kind` value, for when the queue-drainer feeds scans automatically.
 
 Unlike `/submissions`, `products.license_number` is a **hard FK** to `stores`
 (`ON DELETE CASCADE`), so the store must already exist in the spine. The handler
@@ -78,7 +89,9 @@ vision deps / `ANTHROPIC_API_KEY` / Vertex creds unless this route is actually h
 `v_products` view) plus `common/products_embedding_setup.sql` (adds the
 `embedding_dedup vector(768)` column + `CREATE EXTENSION vector`) must be applied
 before first scan; run `python -m vision.backfill_embeddings "$DSN"` once to embed
-any pre-existing product names.
+any pre-existing product names. The storefront path also needs
+`stores.storefront_photos text[]` — the `ALTER TABLE ... IF NOT EXISTS` in
+`common/schema.sql` (re-run it, idempotent).
 
 ## The submissions processor (`POST /submissions/process`)
 

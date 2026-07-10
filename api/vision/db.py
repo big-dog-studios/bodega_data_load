@@ -39,6 +39,18 @@ def candidates_at_store(conn, license_number: str, subtype_id: int) -> list[dict
             for r in rows]
 
 
+def add_storefront_photo(conn, license_number, url) -> None:
+    """Append a storefront/exterior photo path to stores.storefront_photos, deduped.
+    Mirrors submissions.photos (a text[] of GCS paths). The NOT ... = ANY guard makes
+    re-scanning the same image a no-op, and the stores UPDATE bumps updated_at so the
+    new photo rides the next /sync/stores delta out to the client."""
+    conn.execute(
+        "UPDATE stores SET storefront_photos = array_append(storefront_photos, %s) "
+        "WHERE license_number = %s AND NOT (%s = ANY(storefront_photos))",
+        (url, license_number, url),
+    )
+
+
 def update_price(conn, product_id, price_cents, price_raw, source) -> None:
     conn.execute(
         "UPDATE products SET price_cents = %s, price_raw = %s, source = %s, ingested_at = now() "

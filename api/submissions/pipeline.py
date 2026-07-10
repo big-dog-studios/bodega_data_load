@@ -43,11 +43,14 @@ def process_new(conn):
             continue
         # 0. exact license already in stores -> fast dupe
         if db.license_exists(conn, s["license_number"]):
+            db.enqueue_images(conn, s["id"], s["license_number"], s.get("photos"), s.get("receipt"))
             db.mark(conn, [s["id"]], "duplicate", "dup_of_existing")
             used.add(s["id"]); continue
         # 1. fuzzy: same spot + similar name already in stores?
-        if db.nearby_matching_store(conn, s["lat"], s["lng"], s["name"] or "",
-                                    DUP_RADIUS_M, NAME_SIM):
+        dup_license = db.nearby_matching_store(conn, s["lat"], s["lng"], s["name"] or "",
+                                               DUP_RADIUS_M, NAME_SIM)
+        if dup_license:
+            db.enqueue_images(conn, s["id"], dup_license, s.get("photos"), s.get("receipt"))
             db.mark(conn, [s["id"]], "duplicate", "dup_of_existing")
             used.add(s["id"]); continue
         # 2. Google Places confirms a real store -> create verified

@@ -51,6 +51,10 @@ CREATE INDEX IF NOT EXISTS stores_join_key_ix ON stores (join_key);
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS has_wic boolean DEFAULT false;
 -- Migration for DBs created before has_plant_based existed. Survey-only flag.
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS has_plant_based boolean NOT NULL DEFAULT false;
+-- Storefront/exterior photos (GCS object paths), appended by the vision scan when it
+-- classifies an image as a storefront rather than a shelf/receipt. Mirrors
+-- submissions.photos (a text[] of GCS paths); the bytes live in the bucket.
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS storefront_photos text[] NOT NULL DEFAULT '{}';
 
 -- updated_at: "last materially changed" stamp. On INSERT it equals ingested_at (both
 -- DEFAULT now(), which is constant within a txn). A BEFORE UPDATE trigger bumps it to

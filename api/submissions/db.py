@@ -212,12 +212,12 @@ def mark(conn, ids: list, status: str, resolution: str | None = None):
 
 def enqueue_images(conn, submission_id, license_number, photos, receipt):
     """On acceptance, push image refs to the vision queue. Originals stay on the
-    submission (audit). receipt -> 'receipt', photos -> 'shelf'. UNIQUE(url) dedupes."""
+    submission (audit). receipt -> 'receipt', photos -> 'general'. UNIQUE(url) dedupes."""
     items = []
     if receipt:
         items.append((receipt, "receipt"))
     for url in (photos or []):
-        items.append((url, "shelf"))
+        items.append((url, "general"))
     for url, hint in items:
         conn.execute(
             "INSERT INTO image_queue (submission_id, license_number, url, kind_hint) "
